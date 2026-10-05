@@ -509,6 +509,8 @@ class SettingsPage extends GetView<SettingsController> {
               96.0: "96",
               120.0: "120",
               144.0: "144",
+              168.0: "168",
+              192.0: "192",
             },
             value: AppSettingsController.instance.danmuSize.value,
             onChanged: (e) {
@@ -523,6 +525,8 @@ class SettingsPage extends GetView<SettingsController> {
             autofocus: controller.danmakuSpeedFoucsNode.isFoucsed.value,
             title: "弹幕速度",
             items: {
+              30.0: "极慢",
+              24.0: "超慢",
               18.0: "很慢",
               14.0: "较慢",
               12.0: "慢",

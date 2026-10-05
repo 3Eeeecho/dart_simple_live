@@ -392,7 +392,7 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
                   title: "字体大小",
                   value: controller.danmuSize.value.toInt(),
                   min: 8,
-                  max: 144,
+                  max: 180,
                   onChanged: (e) {
                     final nextFontSize = e.toDouble();
                     controller.setDanmuSize(nextFontSize);
@@ -440,7 +440,7 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
                   subtitle: "弹幕持续时间（秒），越小速度越快",
                   value: controller.danmuSpeed.value.toInt(),
                   min: 1,
-                  max: 20,
+                  max: 30,
                   onChanged: (e) {
                     controller.setDanmuSpeed(e.toDouble());
                     updatePreviewOption(duration: e);
