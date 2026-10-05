@@ -58,6 +58,13 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   int _autoSwitchOfflineHops = 0;
   DateTime? _firstOfflineHopAt;
   static const int _maxAutoSwitchOfflineHops = 3;
+
+  /// 离线换台首次检索失败后是否已补试过（每次进房/刷新重置）
+  bool _offlineSwitchRetried = false;
+
+  /// 视频输出失效（播放中尺寸持续为空）恢复次数，每房间限量
+  int _invalidVideoSizeRecoveries = 0;
+  DateTime? _lastInvalidVideoSizeRecoveryAt;
   String _lastShortcutKey = "";
   String _lastShortcutSource = "";
   DateTime? _lastShortcutHandledAt;
@@ -98,6 +105,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   final List<DateTime> _playbackRecoveryTimes = [];
   static const int _maxRecoveriesPerWindow = 6;
   static const Duration _recoveryWindow = Duration(minutes: 5);
+
+  /// 看门狗刷新风暴记账：看门狗触发的重刷此前不计数，会无限原地每 8 秒
+  /// 刷下去；同样按窗口限量，超限后判定播放失败并走自动换台兜底
+  final List<DateTime> _watchdogRefreshTimes = [];
+  static const int _maxWatchdogRefreshesPerWindow = 6;
+  static const Duration _watchdogRefreshWindow = Duration(minutes: 5);
 
   /// 自动退出倒计时，单位秒
   var countdown = 60.obs;
@@ -320,6 +333,13 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   /// 判据：采样间 position 前进不足 1 秒视为停滞样本。
   /// 单纯比较"位置相等"会漏掉"音频时钟继续走但画面冻结"的解码停滞，
   /// 以及弱网下 buffering 频繁抖动导致计数被清零的场景。
+  /// 画面停滞（声音正常但视频解码持续失败）：复用看门狗停滞恢复链，
+  /// 自动重刷并受刷新风暴记账约束，反复失败升级为自动换台
+  @override
+  void onVideoDecodeStall() {
+    unawaited(_refreshPlayerFromWatchdog());
+  }
+
   void _startPlaybackWatchdog() {
     _playbackWatchdog?.cancel();
     _lastWatchdogPosition = null;
@@ -372,11 +392,35 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     });
   }
 
-  /// 看门狗触发的恢复：重新拉流，失败时降级重开房间并提示
+  /// 看门狗触发的恢复：重新拉流；取流/打开抛出的异常不再静默逃逸
+  /// （否则异常从 unawaited 跑掉，连重开房间的降级都不会走），
+  /// 失败时降级重开房间；短时间内反复刷新则判定失败走自动换台。
   Future<void> _refreshPlayerFromWatchdog() async {
-    final reloaded = await setPlayer(refreshUrls: true);
-    if (!reloaded) {
-      Log.w("看门狗刷新失败，尝试重开房间恢复");
+    final now = DateTime.now();
+    _watchdogRefreshTimes.add(now);
+    _watchdogRefreshTimes.removeWhere(
+      (t) => t.isBefore(now.subtract(_watchdogRefreshWindow)),
+    );
+    if (_watchdogRefreshTimes.length > _maxWatchdogRefreshesPerWindow) {
+      // 同一房间短时间内反复停滞，原地重刷已无意义：
+      // 判定播放失败并走自动换台兜底（开关开启时）
+      Log.w(
+        "看门狗刷新风暴：${_watchdogRefreshWindow.inMinutes}分钟内已刷新"
+        "${_watchdogRefreshTimes.length}次，转自动换台",
+      );
+      _markPlaybackGivenUp(fromError: true, error: "播放反复停滞");
+      await _tryAutoSwitchToNextLiveRoom(reason: "playback_failure");
+      return;
+    }
+    try {
+      final reloaded = await setPlayer(refreshUrls: true);
+      if (!reloaded) {
+        Log.w("看门狗刷新失败，尝试重开房间恢复");
+        SmartDialog.showToast("播放停滞，正在重新连接...");
+        refreshRoom();
+      }
+    } catch (e, stackTrace) {
+      Log.e("看门狗刷新异常: $e", stackTrace);
       SmartDialog.showToast("播放停滞，正在重新连接...");
       refreshRoom();
     }
@@ -897,8 +941,15 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
       initDanmau();
       liveDanmaku.start(detail.value?.danmakuData);
-    } catch (e) {
-      SmartDialog.showToast(e.toString());
+    } catch (e, stackTrace) {
+      Log.e("读取直播间信息失败：${site.id}/$roomId", stackTrace);
+      // 房间被封禁/下播后禁止进入等：清掉上一间房残留信息，
+      // 落到带重试按钮的错误页（不再只弹 toast 卡在“未开播”），
+      // 并与未开播房间一致地调度自动换台（开关开启时）
+      detail.value = null;
+      liveStatus.value = false;
+      playbackLoadError.value = "直播间加载失败，请稍后重试\n($e)";
+      _scheduleAutoSwitchFromOfflineRoom();
     } finally {
       pageLoadding.value = false;
     }
@@ -1104,6 +1155,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   void _resetPlaybackRecoveryBookkeeping() {
     mediaErrorRetryCount = 0;
     _playbackRecoveryTimes.clear();
+    _watchdogRefreshTimes.clear();
+    _offlineSwitchRetried = false;
+    _invalidVideoSizeRecoveries = 0;
+    _lastInvalidVideoSizeRecoveryAt = null;
   }
 
   /// 单次断流恢复：刷新播放地址并重开播放器。取流/打开抛出的异常
@@ -1162,6 +1217,35 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       errorMsg.value = "播放失败";
       SmartDialog.showToast("播放失败:${error ?? ''}");
     }
+  }
+
+  /// 视频输出失效（播放中尺寸持续为空，对齐移动端 Issue#57 的信号）：
+  /// 限量重开当前流恢复，避免与正常切房/刷新互相干扰
+  @override
+  void onInvalidVideoSize() {
+    if (!liveStatus.value || userPaused.value) {
+      return;
+    }
+    // 播放地址尚未就绪（如清晰度还在读取）时不重开，避免越界
+    if (playUrls.isEmpty || currentLineIndex < 0) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_invalidVideoSizeRecoveries >= 3) {
+      return;
+    }
+    if (_lastInvalidVideoSizeRecoveryAt != null &&
+        now.difference(_lastInvalidVideoSizeRecoveryAt!) <
+            const Duration(seconds: 10)) {
+      return;
+    }
+    _invalidVideoSizeRecoveries += 1;
+    _lastInvalidVideoSizeRecoveryAt = now;
+    Log.w(
+      "检测到视频输出失效，重开当前流恢复 "
+      "($_invalidVideoSizeRecoveries/3)",
+    );
+    unawaited(setPlayer());
   }
 
   bool get _shouldRefreshUrlsOnPlaybackRetry =>
@@ -1233,11 +1317,25 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       if (liveStatus.value || _autoSwitchingRoom) {
         return;
       }
-      await _tryAutoSwitchToNextLiveRoom(reason: "room_offline");
+      final switched = await _tryAutoSwitchToNextLiveRoom(reason: "room_offline");
+      // 首次检索失败（网络抖动/状态缓存过期/触发风控）时延迟补一次，
+      // 避免一次性错过换台窗口；每个房间只补一次
+      if (!switched && !_offlineSwitchRetried) {
+        _offlineSwitchRetried = true;
+        Future.delayed(const Duration(seconds: 8), () async {
+          if (_roomDisposed || site.id != siteId || roomId != scheduledRoomId) {
+            return;
+          }
+          if (liveStatus.value || _autoSwitchingRoom) {
+            return;
+          }
+          await _tryAutoSwitchToNextLiveRoom(reason: "room_offline");
+        });
+      }
     });
   }
 
-  Future<void> _tryAutoSwitchToNextLiveRoom({required String reason}) async {
+  Future<bool> _tryAutoSwitchToNextLiveRoom({required String reason}) async {
     final settings = AppSettingsController.instance;
     final enabled = switch (reason) {
       "live_end" => settings.autoSwitchNextOnLiveEnd.value,
@@ -1248,12 +1346,12 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
             settings.autoSwitchNextOnPlaybackFailure.value,
     };
     if (!enabled || _autoSwitchingRoom) {
-      return;
+      return false;
     }
 
     final candidates = FollowUserService.instance.allList.toList();
     if (candidates.isEmpty) {
-      return;
+      return false;
     }
 
     final currentId = "${site.id}_$roomId";
@@ -1262,21 +1360,53 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       if (currentIndex >= 0) ...candidates.skip(currentIndex + 1),
       ...candidates,
     ].where((item) => item.id != currentId).toList();
+
     FollowUser? target;
+    // 第一轮：优先关注列表里缓存为“直播中”的候选，只对其逐一在线确认，
+    // 避免对每个未开播候选都发状态请求（关注多时检测明显偏慢）
     for (final candidate in ordered) {
-      try {
-        if (await Sites.allSites[candidate.siteId]!.liveSite
-            .getLiveStatus(roomId: candidate.roomId)) {
-          target = candidate;
+      if (candidate.liveStatus.value != 2) {
+        continue;
+      }
+      final live = await _confirmCandidateLive(candidate);
+      if (live == true) {
+        target = candidate;
+        break;
+      }
+      if (live == null) {
+        return false;
+      }
+    }
+    // 第二轮兜底：先探测状态未知（0）的候选，再在剩余额度内补探缓存
+    // “未开播”（1）的——它们可能刚开播、关注列表状态还没刷新到
+    if (target == null) {
+      var probes = 0;
+      for (final pass in const [0, 1]) {
+        if (target != null || probes >= 10) {
           break;
         }
-      } catch (e, stackTrace) {
-        Log.e("检查自动切换候选直播状态失败：${candidate.id}", stackTrace);
+        for (final candidate in ordered) {
+          if (probes >= 10) {
+            break;
+          }
+          if (candidate.liveStatus.value != pass) {
+            continue;
+          }
+          probes += 1;
+          final live = await _confirmCandidateLive(candidate);
+          if (live == true) {
+            target = candidate;
+            break;
+          }
+          if (live == null) {
+            return false;
+          }
+        }
       }
     }
     if (target == null) {
       SmartDialog.showToast("没有找到正在直播的下一个直播间");
-      return;
+      return false;
     }
 
     _autoSwitchingRoom = true;
@@ -1290,8 +1420,26 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         _autoSwitchOfflineHops += 1;
       }
       resetRoom(Sites.allSites[target.siteId]!, target.roomId);
+      return true;
     } finally {
       _autoSwitchingRoom = false;
+    }
+  }
+
+  /// 确认候选房间是否在播。
+  /// true=在播；false=不在播或查询失败；null=触发平台风控（444），应立即中止扫描
+  Future<bool?> _confirmCandidateLive(FollowUser candidate) async {
+    try {
+      return await Sites.allSites[candidate.siteId]!.liveSite
+          .getLiveStatus(roomId: candidate.roomId);
+    } catch (e, stackTrace) {
+      if (e is CoreError && e.statusCode == 444) {
+        Log.e("查询候选直播状态触发风控：${candidate.id}", stackTrace);
+        SmartDialog.showToast("直播状态查询触发风控，稍后再试");
+        return null;
+      }
+      Log.e("检查自动切换候选直播状态失败：${candidate.id}", stackTrace);
+      return false;
     }
   }
 
@@ -1420,6 +1568,10 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
     // 停止播放
     await player.stop();
+
+    // 清掉上一间房的信息再加载，避免加载失败时残留旧房标题/头像
+    detail.value = null;
+    liveStatus.value = false;
 
     // 刷新信息
     loadData();

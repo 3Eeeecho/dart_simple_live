@@ -1819,6 +1819,11 @@ class PlayerController extends BaseController
 
   /// Serializes every media open so a stale recovery cannot finish after a
   /// newer room open and replace its media.
+  /// 单次 open 的最长等待。渲染管线挂死时 player.open 可能永不完成，
+  /// 所有恢复路径又串行排在同一个 open 后面，超时后强制放行，
+  /// 让下一路恢复（或换台）能继续推进，避免页面永久卡死。
+  static const _playbackOpenTimeout = Duration(seconds: 20);
+
   Future<bool> openPlaybackMedia(
     Media media, {
     required int loadGeneration,
@@ -1838,7 +1843,15 @@ class PlayerController extends BaseController
         break;
       }
       try {
-        await activeOpen;
+        await activeOpen.timeout(_playbackOpenTimeout);
+      } on TimeoutException {
+        Log.e(
+          "等待旧媒体打开超时(${_playbackOpenTimeout.inSeconds}s)，强制接管打开流程",
+          StackTrace.current,
+        );
+        if (identical(_playbackOpenFuture, activeOpen)) {
+          _playbackOpenFuture = null;
+        }
       } catch (e, stackTrace) {
         Log.e("等待旧媒体打开失败: $e", stackTrace);
       }
@@ -1856,12 +1869,19 @@ class PlayerController extends BaseController
     final opening = Future<void>.microtask(() => player.open(media));
     _playbackOpenFuture = opening;
     try {
-      await opening;
+      await opening.timeout(_playbackOpenTimeout);
       return _isPlaybackOwnerCurrent(
         loadGeneration,
         mediaGeneration,
         isStillOwner,
       );
+    } on TimeoutException {
+      Log.e(
+        "打开媒体超时(${_playbackOpenTimeout.inSeconds}s)，放弃等待"
+        "（渲染管线可能已挂死）",
+        StackTrace.current,
+      );
+      return false;
     } finally {
       if (identical(_playbackOpenFuture, opening)) {
         _playbackOpenFuture = null;
@@ -2185,14 +2205,17 @@ class PlayerController extends BaseController
     });
     _logSubscription = player.stream.log.listen((event) {
       Log.d("播放器日志：$event");
+      _trackVideoDecodeError(event);
     });
     _widthSubscription = player.stream.width.listen((event) {
       Log.d(
           'width:$event  W:${(player.state.width)}  H:${(player.state.height)}');
 
       // Fix Issue #57: 检测异常的视频尺寸
+      // Windows 上纹理重建期间 width 会短暂为 null，此时触发恢复
+      // 会撞上渲染上下文初始化的竞态（回前台整窗冻结），仅非 Windows 生效
       if (event == null || event <= 0) {
-        if (player.state.playing) {
+        if (player.state.playing && !Platform.isWindows) {
           Log.w("播放器宽度异常: $event (播放中)，可能是Surface失效");
           unawaited(_handleInvalidVideoSize());
         }
@@ -2208,9 +2231,9 @@ class PlayerController extends BaseController
       Log.d(
           'height:$event  W:${(player.state.width)}  H:${(player.state.height)}');
 
-      // Fix Issue #57: 检测异常的视频尺寸
+      // Fix Issue #57: 检测异常的视频尺寸（Windows 排除，同上）
       if (event == null || event <= 0) {
-        if (player.state.playing) {
+        if (player.state.playing && !Platform.isWindows) {
           Log.w("播放器高度异常: $event (播放中)，可能是Surface失效");
           unawaited(_handleInvalidVideoSize());
         }
@@ -2401,6 +2424,49 @@ class PlayerController extends BaseController
 
   // Fix Issue #57 & #97: 处理异常的视频尺寸（Surface失效）。
   // Recovery is bounded and serialized so startup events cannot storm the decoder.
+  /// 黑屏判据（音频时钟在走但视频不渲染，位置看门狗看不见）：
+  /// mpv 的 vd（视频解码器）持续报 error 说明解码管线已挂，
+  /// 按窗口计数超阈值即交由 onVideoDecodeStall 走停滞恢复链。
+  /// 阈值取 15 次/30 秒：正常流偶尔的解码毛刺到不了这个量级，
+  /// 而 25fps 的死视频轨约 1 秒就能报够。
+  final List<DateTime> _videoDecodeErrorTimes = [];
+  DateTime? _lastVideoDecodeStallAt;
+  static const int _videoDecodeErrorThreshold = 15;
+  static const Duration _videoDecodeErrorWindow = Duration(seconds: 30);
+  static const Duration _videoDecodeStallCooldown = Duration(seconds: 30);
+
+  void _trackVideoDecodeError(PlayerLog event) {
+    if (event.prefix != "vd" || event.level != "error") {
+      return;
+    }
+    if (!player.state.playing || player.state.completed) {
+      return;
+    }
+    final now = DateTime.now();
+    _videoDecodeErrorTimes.add(now);
+    _videoDecodeErrorTimes.removeWhere(
+      (t) => t.isBefore(now.subtract(_videoDecodeErrorWindow)),
+    );
+    if (_videoDecodeErrorTimes.length < _videoDecodeErrorThreshold) {
+      return;
+    }
+    if (_lastVideoDecodeStallAt != null &&
+        now.difference(_lastVideoDecodeStallAt!) < _videoDecodeStallCooldown) {
+      return;
+    }
+    _lastVideoDecodeStallAt = now;
+    _videoDecodeErrorTimes.clear();
+    Log.w(
+      "${_videoDecodeErrorWindow.inSeconds}秒内视频解码错误达"
+      "$_videoDecodeErrorThreshold 次，判定画面停滞",
+    );
+    onVideoDecodeStall();
+  }
+
+  /// 画面停滞回调（声音正常但视频解码持续失败），由 LiveRoomController
+  /// 接入停滞恢复链（重刷→风暴记账→自动换台）
+  void onVideoDecodeStall() {}
+
   Future<void> _handleInvalidVideoSize() async {
     final generation = playbackLoadGeneration;
     final mediaGeneration = playbackMediaGeneration;
