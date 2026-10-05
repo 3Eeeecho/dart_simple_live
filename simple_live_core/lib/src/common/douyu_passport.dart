@@ -10,7 +10,15 @@ enum DouyuQrStatus { waiting, scanned, expired, authorized }
 
 /// 斗鱼 Passport 凭据工具：扫码登录与播放 Cookie 续期。
 ///
-/// 方案参考 SlotSun v1.8.13（safeAuth 续期）与 fancerest-png #190（扫码流程）：
+/// 参考来源（本文件大部分端点与流程由此二者验证可用）：
+/// - safeAuth 续期（接口/参数/Set-Cookie 处理）：
+///   SlotSun/dart_simple_live v1.8.13，douyu_utils.dart `refreshCookie`
+///   （issue #182：ltp0 & dy_did 配置说明）
+/// - 扫码登录流程（generateCode / japi/scan/auth 状态码 / 确认地址取凭据）：
+///   fancerest-png/dart_simple_live PR #190 分支 `feat-douyu-qr-login`
+///   （该 PR 未被 SlotSun 合并，实现经其 docs/douyu-qr-login.md 核对）
+///
+/// 设计要点：
 /// - 扫码在 Passport 专用会话中完成，凭据（LTP0 / dy_did）由确认响应的
 ///   Set-Cookie 提供，不经过共享 HTTP 客户端与日志拦截器；
 /// - 播放 Cookie 含 acf_jwt_token，过期时间在 JWT payload 的 exp（约 7 天），

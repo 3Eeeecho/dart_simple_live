@@ -264,7 +264,8 @@ class DouyuSite implements LiveSite {
       var url = await getPlayUrl(detail.roomId, args, data.rate, item);
       if (url.isNotEmpty) {
         // ws 线路的地址默认 expire=300（5 分钟）——匿名/海外场景下单条地址
-        // 可用时间极短，是"几分钟就断"的常见诱因之一；追加 expire=0 延长
+        // 可用时间极短，是"几分钟就断"的常见诱因之一；追加 expire=0 延长。
+        // 方案来源：SlotSun/dart_simple_live v1.8.13（issue #177 海外免登录断流）
         if (url.contains('expire=300') && url.contains('fcdn=ws')) {
           url = '$url&expire=0';
         }
