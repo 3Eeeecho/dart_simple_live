@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:crypto/crypto.dart';
 import 'package:simple_live_core/src/model/tars/get_cdn_token_ex_req.dart';
 import 'package:simple_live_core/src/model/tars/get_cdn_token_ex_resp.dart';
@@ -18,11 +19,9 @@ class HuyaSite implements LiveSite {
     3: "手游",
     8: "娱乐",
   };
-  final String kUserAgent =
-      "Mozilla/5.0 (Linux; Android 11; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.91 Mobile Safari/537.36 Edg/117.0.0.0";
+  final String kUserAgent = PlatformIdentity.huyaUserAgent;
 
-  static const String HYSDK_UA =
-      "HYSDK(Windows, 30000002)_APP(pc_exe&7060000&official)_SDK(trans&2.32.3.5646)";
+  static const String HYSDK_UA = PlatformIdentity.huyaHysdkUserAgent;
 
   static Map<String, String> requestHeaders = {
     'Origin': baseUrl,
@@ -419,8 +418,13 @@ class HuyaSite implements LiveSite {
   @override
   Future<LiveRoomDetail> getRoomDetail({required String roomId}) async {
     var roomInfo = await _getRoomInfo(roomId);
-    var tLiveInfo = roomInfo["roomInfo"]["tLiveInfo"];
-    var tProfileInfo = roomInfo["roomInfo"]["tProfileInfo"];
+    var tLiveInfo = roomInfo["roomInfo"]?["tLiveInfo"];
+    var tProfileInfo = roomInfo["roomInfo"]?["tProfileInfo"];
+    if (tLiveInfo is! Map || tProfileInfo is! Map) {
+      // 关键字段缺失：多半是虎牙调整了移动端页面数据结构（参考 SlotSun #189
+      // 的 gameStreamInfoList 挪位事故），给语义化错误而非裸异常
+      throw CoreError("虎牙房间数据结构变更，请联系开发者适配");
+    }
     var topSid = _asPositiveInt(roomInfo["topSid"]);
     var subSid = _asPositiveInt(roomInfo["subSid"]);
 
@@ -506,7 +510,12 @@ class HuyaSite implements LiveSite {
       r"window\.HNF_GLOBAL_INIT.=.\{[\s\S]*?\}[\s\S]*?</script>",
       multiLine: false,
     ).firstMatch(resultText)?.group(0);
-    var jsonText = text!
+    if (text == null) {
+      // 页面结构变更（HNF_GLOBAL_INIT 缺失）时给出可定位的语义错误，
+      // 而不是空指针异常，方便第一时间发现"平台改版"
+      throw CoreError("虎牙页面数据结构变更或访问受限，请稍后重试");
+    }
+    var jsonText = text
         .replaceAll(RegExp(r"window\.HNF_GLOBAL_INIT.=."), '')
         .replaceAll("</script>", "")
         .replaceAllMapped(RegExp(r'function.*?\(.*?\).\{[\s\S]*?\}'), (match) {

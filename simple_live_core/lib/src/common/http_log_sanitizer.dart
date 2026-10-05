@@ -2,7 +2,7 @@ class HttpLogSanitizer {
   const HttpLogSanitizer._();
 
   static final RegExp _sensitiveTextPattern = RegExp(
-    r'(password|secret|token|session|csrf|signature|a[_-]?bogus|ttwid|sid[_-]?guard)\s*[:=]\s*([^;,\s&]+)',
+    r'(password|secret|token|session|csrf|signature|a[_-]?bogus|ttwid|sid[_-]?guard|ltp0)\s*[:=]\s*([^;,\s&]+)',
     caseSensitive: false,
   );
 
@@ -23,7 +23,8 @@ class HttpLogSanitizer {
         normalized.contains('signature') ||
         normalized == 'ttwid' ||
         normalized == 'abogus' ||
-        normalized == 'sidguard';
+        normalized == 'sidguard' ||
+        normalized == 'ltp0';
   }
 
   static dynamic redact(dynamic value, {String? key}) {

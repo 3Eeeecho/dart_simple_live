@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/modules/mine/account/douyu/qr_login_page.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
 import 'package:simple_live_app/services/douyin_account_service.dart';
@@ -115,6 +116,52 @@ class AccountController extends GetxController {
   }
 
   void douyuTap() {
+    final hasCookie = DouyuAccountService.instance.hasCookie.value;
+    Utils.showBottomSheet(
+      title: "斗鱼账号",
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.qr_code_2),
+            title: const Text("扫码登录"),
+            subtitle: const Text(
+              "用斗鱼APP扫码确认，自动换取并续期 Cookie，无需定期手动更新",
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Get.back();
+              Get.to(() => const DouyuQRLoginPage());
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.edit_outlined),
+            title: const Text("手动配置 Cookie"),
+            subtitle: const Text("粘贴 www.douyu.com 的完整 Cookie"),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Get.back();
+              _showDouyuCookieDialog();
+            },
+          ),
+          if (hasCookie)
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text("退出登录"),
+              subtitle: const Text("清除 Cookie 与续期凭据，恢复匿名播放"),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () {
+                Get.back();
+                DouyuAccountService.instance.clearCookie();
+                SmartDialog.showToast("已退出斗鱼账号，将使用匿名播放");
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _showDouyuCookieDialog() {
     final account = DouyuAccountService.instance;
     final controller = TextEditingController(text: account.cookie);
     Get.dialog(
@@ -126,7 +173,7 @@ class AccountController extends GetxController {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                "匿名用户的斗鱼高画质可能约 10 分钟后断流；粘贴登录后的 www.douyu.com 完整 Cookie 可恢复高画质长期播放。Cookie 只保存在本机。",
+                "匿名用户的斗鱼高画质可能约 10 分钟后断流；粘贴登录后的 www.douyu.com 完整 Cookie 可恢复高画质长期播放。Cookie 只保存在本机；若 Cookie 内含 LTP0/dy_did，过期后也会自动续期。",
                 style: TextStyle(fontSize: 12, color: Colors.grey),
               ),
               const SizedBox(height: 12),

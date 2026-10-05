@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:simple_live_core/simple_live_core.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:simple_live_core/src/common/web_socket_util.dart';
 
 class KuaishouDanmakuArgs {
@@ -25,9 +26,7 @@ class KuaishouDanmakuArgs {
     this.expTag = '',
     this.attach = '',
     this.cookie = '',
-    this.userAgent =
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    this.userAgent = PlatformIdentity.kuaishouUserAgent,
   });
 
   @override

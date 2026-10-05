@@ -14,6 +14,8 @@ export 'src/common/douyin_cookie_helper.dart';
 export 'src/common/douyin_follow_refresh_limiter.dart';
 export 'src/common/douyin_game_artwork.dart';
 export 'src/common/http_log_sanitizer.dart';
+export 'src/common/douyu_passport.dart';
+export 'src/common/platform_identity.dart';
 export 'src/common/kuaishou_live_link.dart';
 export 'src/common/live_url_parser.dart';
 export 'src/common/player_error_classifier.dart';

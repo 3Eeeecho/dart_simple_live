@@ -6,6 +6,7 @@ import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/controller/base_controller.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
+import 'package:simple_live_tv_app/modules/account/douyu/qr_login_page.dart';
 import 'package:simple_live_tv_app/routes/app_navigation.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
 import 'package:simple_live_tv_app/services/douyu_account_service.dart';
@@ -246,6 +247,36 @@ class SettingsController extends BaseController
   }
 
   Future<void> douyuTap() async {
+    final account = DouyuAccountService.instance;
+    final hasCookie = account.hasCookie.value;
+    final action = await Utils.showOptionDialog<String>(
+      [
+        "扫码登录",
+        "手动配置 Cookie",
+        if (hasCookie) "清除 Cookie",
+      ],
+      "选择登录方式",
+      title: "斗鱼账号",
+    );
+    switch (action) {
+      case "扫码登录":
+        Get.to(() => const DouyuQRLoginPage());
+        break;
+      case "手动配置 Cookie":
+        await _editDouyuCookie();
+        break;
+      case "清除 Cookie":
+        account.clearCookie();
+        SmartDialog.showToast("已清除斗鱼 Cookie，将使用匿名播放");
+        update();
+        break;
+      default:
+        break;
+    }
+    update();
+  }
+
+  Future<void> _editDouyuCookie() async {
     final account = DouyuAccountService.instance;
     final value = await Utils.showEditTextDialog(
       account.cookie,

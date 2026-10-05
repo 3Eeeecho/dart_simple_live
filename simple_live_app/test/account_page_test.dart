@@ -69,6 +69,12 @@ void main() {
     await tester.tap(find.text('斗鱼直播'));
     await tester.pumpAndSettle();
 
+    // 斗鱼入口先弹账号菜单（扫码登录 / 手动配置 Cookie），再进 Cookie 对话框
+    expect(find.text('扫码登录'), findsOneWidget);
+    expect(find.text('手动配置 Cookie'), findsOneWidget);
+    await tester.tap(find.text('手动配置 Cookie'));
+    await tester.pumpAndSettle();
+
     final cookieField = tester.widget<TextField>(find.byType(TextField));
     expect(cookieField.decoration?.alignLabelWithHint, isTrue);
     expect(

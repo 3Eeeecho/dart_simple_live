@@ -6,6 +6,7 @@ import 'package:simple_live_core/src/common/convert_helper.dart';
 import 'package:simple_live_core/src/common/core_error.dart';
 import 'package:simple_live_core/src/common/core_log.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:simple_live_core/src/danmaku/bilibili_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_site.dart';
@@ -33,8 +34,7 @@ class BiliBiliSite implements LiveSite {
   @override
   LiveDanmaku getDanmaku() => BiliBiliDanmaku();
 
-  static const String kDefaultUserAgent =
-      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0";
+  static const String kDefaultUserAgent = PlatformIdentity.bilibiliUserAgent;
   static const String kDefaultReferer = "https://live.bilibili.com/";
 
   String buvid3 = "";
@@ -238,8 +238,7 @@ class BiliBiliSite implements LiveSite {
       urls: urls,
       headers: {
         "referer": "https://live.bilibili.com",
-        "user-agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36 Edg/115.0.1901.188",
+        "user-agent": PlatformIdentity.bilibiliRoomUserAgent,
       },
     );
   }

@@ -404,13 +404,17 @@ class Utils {
     return result;
   }
 
+  /// 将 "x.y.z" 形式的版本号解析为可比较的整数（"1.13.2" -> 11302）。
+  /// 预发布/构建后缀（"-local.1"、"+11302"）不参与比较——本地构建不应
+  /// 比同版本号的正式版"更新"；非数字段按 0 处理，不抛异常。
   static int parseVersion(String version) {
-    var sp = version.split('.');
+    final core = version.trim().split(RegExp(r'[+-]')).first;
     var num = "";
-    for (var item in sp) {
-      num = num + item.padLeft(2, '0');
+    for (var item in core.split('.')) {
+      final digits = RegExp(r'^(\d+)').firstMatch(item)?.group(1) ?? "0";
+      num = num + digits.padLeft(2, '0');
     }
-    return int.parse(num);
+    return int.tryParse(num) ?? 0;
   }
 
   static String onlineToString(int num) {

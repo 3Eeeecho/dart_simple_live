@@ -27,4 +27,21 @@ void main() {
     expect(text, isNot(contains('private')));
     expect(text, contains('token=<redacted>'));
   });
+
+  test('redacts douyu ltp0 credential in text', () {
+    final text = HttpLogSanitizer.redactText(
+      'POST safeAuth cookie: dy_did=abc;LTP0=secret-ltp0-value',
+    );
+    expect(text, isNot(contains('secret-ltp0-value')));
+    expect(text, contains('cookie=<redacted>'));
+  });
+
+  test('redacts standalone ltp0 key-value pair', () {
+    final text = HttpLogSanitizer.redactText(
+      'Passport response LTP0=secret-ltp0-value; acf_uid=42',
+    );
+    expect(text, isNot(contains('secret-ltp0-value')));
+    expect(text, contains('LTP0=<redacted>'));
+    expect(text, contains('acf_uid=42'));
+  });
 }

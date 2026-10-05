@@ -5,6 +5,7 @@ import 'package:cookie_jar/cookie_jar.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
 import 'package:simple_live_core/src/common/kuaishou_live_link.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:simple_live_core/src/danmaku/kuaishou_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_site.dart';
@@ -18,9 +19,7 @@ import 'package:simple_live_core/src/model/live_room_item.dart';
 import 'package:simple_live_core/src/model/live_search_result.dart';
 
 class KuaishouSite extends LiveSite {
-  static const String userAgent =
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  static const String userAgent = PlatformIdentity.kuaishouUserAgent;
   KuaishouSite() {
     id = "kuaishou";
     name = "快手直播";
@@ -867,8 +866,7 @@ class KuaishouSite extends LiveSite {
         'device_package': {
           'os_version': 'NT 10.0',
           'model': 'Windows',
-          'ua':
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'ua': PlatformIdentity.kuaishouUserAgent,
         },
         'need_encrypt': 'false',
         'network_package': {'type': 3},

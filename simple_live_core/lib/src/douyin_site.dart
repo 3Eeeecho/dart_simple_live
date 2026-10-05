@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_core/src/common/convert_helper.dart';
 import 'package:simple_live_core/src/common/http_client.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:simple_live_core/src/scripts/douyin_sign.dart';
 
 class DouyinSite implements LiveSite {
@@ -17,8 +18,7 @@ class DouyinSite implements LiveSite {
   LiveDanmaku getDanmaku() => DouyinDanmaku();
 
   /// 使用 QQBrowser User-Agent（参考 DouyinLiveRecorder）
-  static const String kDefaultUserAgent =
-      "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.97 Safari/537.36 Core/1.116.567.400 QQBrowser/19.7.6764.400";
+  static const String kDefaultUserAgent = PlatformIdentity.douyinUserAgent;
 
   static const String kDefaultReferer = "https://live.douyin.com";
 

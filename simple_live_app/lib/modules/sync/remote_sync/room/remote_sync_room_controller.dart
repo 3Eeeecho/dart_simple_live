@@ -384,7 +384,11 @@ class RemoteSyncRoomController extends BaseController {
         throw const FormatException("账号数据格式不是对象");
       }
       var cookie = jsonBody['cookie']?.toString() ?? "";
-      DouyuAccountService.instance.setCookie(cookie);
+      DouyuAccountService.instance.setCookie(
+        cookie,
+        ltp0: jsonBody['ltp0']?.toString(),
+        dyDid: jsonBody['dyDid']?.toString(),
+      );
       SmartDialog.showToast(cookie.isEmpty ? '已清除斗鱼账号' : '已同步斗鱼账号');
     } catch (e) {
       SmartDialog.showToast("同步失败:$e");
@@ -587,6 +591,11 @@ class RemoteSyncRoomController extends BaseController {
         overlay: true,
         content: json.encode({
           "cookie": DouyuAccountService.instance.cookie,
+          // 续期凭据可选：旧版本接收端只读 cookie 字段，自动忽略
+          if (DouyuAccountService.instance.ltp0.isNotEmpty)
+            "ltp0": DouyuAccountService.instance.ltp0,
+          if (DouyuAccountService.instance.dyDid.isNotEmpty)
+            "dyDid": DouyuAccountService.instance.dyDid,
         }),
       );
       if (resp.isSuccess) {

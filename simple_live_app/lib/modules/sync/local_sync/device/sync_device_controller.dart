@@ -258,7 +258,11 @@ class SyncDeviceController extends BaseController {
       SyncProgressDialog.show(const SyncProgress(stage: "同步斗鱼账号"));
 
       await request.syncDouyuAccount(
-          client, DouyuAccountService.instance.cookie);
+        client,
+        DouyuAccountService.instance.cookie,
+        ltp0: DouyuAccountService.instance.ltp0,
+        dyDid: DouyuAccountService.instance.dyDid,
+      );
       SmartDialog.showToast("已同步斗鱼账号");
     } catch (e) {
       SmartDialog.showToast("同步失败：${exceptionToString(e)}");

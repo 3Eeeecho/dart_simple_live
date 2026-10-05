@@ -513,7 +513,12 @@ class SyncService extends GetxService {
         throw const FormatException("账号数据格式不是对象");
       }
       final cookie = jsonBody['cookie']?.toString() ?? "";
-      DouyuAccountService.instance.setCookie(cookie);
+      // ltp0/dyDid 为可选续期凭据，旧版本发送端不携带
+      DouyuAccountService.instance.setCookie(
+        cookie,
+        ltp0: jsonBody['ltp0']?.toString(),
+        dyDid: jsonBody['dyDid']?.toString(),
+      );
       SmartDialog.showToast(cookie.isEmpty ? '已清除斗鱼账号' : '已同步斗鱼账号');
       return toJsonResponse({'status': true, 'message': 'success'});
     } catch (e) {

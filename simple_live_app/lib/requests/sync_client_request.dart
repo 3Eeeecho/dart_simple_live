@@ -155,11 +155,22 @@ class SyncClientRequest {
     }
   }
 
-  Future<bool> syncDouyuAccount(SyncClinet client, String cookie) async {
+  /// 同步斗鱼账号。续期凭据（ltp0/dyDid）为可选字段，旧版本接收端只读
+  /// cookie 字段会自动忽略，协议向后兼容。
+  Future<bool> syncDouyuAccount(
+    SyncClinet client,
+    String cookie, {
+    String ltp0 = "",
+    String dyDid = "",
+  }) async {
     var url = "http://${client.address}:${client.port}/sync/account/douyu";
     var data = await HttpClient.instance.postJson(
       url,
-      data: {"cookie": cookie},
+      data: {
+        "cookie": cookie,
+        if (ltp0.isNotEmpty) "ltp0": ltp0,
+        if (dyDid.isNotEmpty) "dyDid": dyDid,
+      },
     );
 
     if (data["status"]) {

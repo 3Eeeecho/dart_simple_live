@@ -4,6 +4,8 @@ import 'dart:math';
 
 import 'package:simple_live_core/src/common/http_client.dart';
 import 'package:simple_live_core/src/common/core_error.dart';
+import 'package:simple_live_core/src/common/douyu_passport.dart';
+import 'package:simple_live_core/src/common/platform_identity.dart';
 import 'package:simple_live_core/src/danmaku/douyu_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_danmaku.dart';
 import 'package:simple_live_core/src/interface/live_site.dart';
@@ -29,6 +31,38 @@ class DouyuSite implements LiveSite {
   /// 作用：匿名请求不再共用写死的假 did（千万用户共享一个"设备"是风控
   /// 掐流的典型特征），签名与 dy_did/acf_did Cookie 保持一致。
   String deviceId = "";
+
+  /// 取流前 Cookie 续期回调：由 App 层注入（扫码登录后凭据自动续期）。
+  /// 返回新 Cookie；返回 null 或抛错时沿用现有 Cookie。
+  Future<String?> Function()? onCookieExpired;
+  Future<void>? _renewInFlight;
+
+  /// 取流前检查 Cookie 有效期（acf_jwt_token 的 JWT exp，约 7 天），
+  /// 过期且有续期回调时触发一次续期；并发取流共享同一次续期。
+  Future<void> _ensureFreshCookie() async {
+    if (cookie.trim().isEmpty || !DouyuPassport.isCookieExpired(cookie)) {
+      return;
+    }
+    final renew = onCookieExpired;
+    if (renew == null) {
+      return;
+    }
+    _renewInFlight ??= _runRenewal(renew).whenComplete(() {
+      _renewInFlight = null;
+    });
+    try {
+      await _renewInFlight;
+    } catch (_) {
+      // 续期失败沿用现有 Cookie，由播放链路（断流重试/换线路）自行兜底
+    }
+  }
+
+  Future<void> _runRenewal(Future<String?> Function() renew) async {
+    final renewed = await renew();
+    if (renewed != null && renewed.trim().isNotEmpty) {
+      cookie = renewed.trim();
+    }
+  }
 
   /// 进程内兜底设备号：App 层未注入时也保证同一进程内身份稳定。
   static final String _processFallbackDid = _generateHexDid(32);
@@ -85,8 +119,7 @@ class DouyuSite implements LiveSite {
 
   Map<String, String> get _requestHeaders => {
     'referer': 'https://www.douyu.com/',
-    'user-agent':
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    'user-agent': PlatformIdentity.douyuUserAgent,
     if (_deviceCookieHeader.isNotEmpty) 'Cookie': _deviceCookieHeader,
   };
 
@@ -166,6 +199,7 @@ class DouyuSite implements LiveSite {
   Future<List<LivePlayQuality>> getPlayQualites({
     required LiveRoomDetail detail,
   }) async {
+    await _ensureFreshCookie();
     var data = await _getFreshPlayArgs(detail.roomId, fallback: detail.data);
     data += "&cdn=&rate=-1&ver=Douyu_223061205&iar=1&ive=1&hevc=0&fa=0";
     List<LivePlayQuality> qualities = [];
@@ -217,6 +251,7 @@ class DouyuSite implements LiveSite {
     required LiveRoomDetail detail,
     required LivePlayQuality quality,
   }) async {
+    await _ensureFreshCookie();
     // The signed playback arguments expire while a room remains open.  A
     // retry must fetch a new server script and sign it again; reusing the
     // value captured by getRoomDetail causes Douyu to return a timestamp error
@@ -228,6 +263,11 @@ class DouyuSite implements LiveSite {
     for (var item in data.cdns) {
       var url = await getPlayUrl(detail.roomId, args, data.rate, item);
       if (url.isNotEmpty) {
+        // ws 线路的地址默认 expire=300（5 分钟）——匿名/海外场景下单条地址
+        // 可用时间极短，是"几分钟就断"的常见诱因之一；追加 expire=0 延长
+        if (url.contains('expire=300') && url.contains('fcdn=ws')) {
+          url = '$url&expire=0';
+        }
         urls.add(url);
       }
     }
@@ -372,7 +412,7 @@ class DouyuSite implements LiveSite {
       header: {
         ..._requestHeaders,
         'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.51',
+            PlatformIdentity.douyuSearchUserAgent,
         'referer': 'https://www.douyu.com/search/',
       },
     );
@@ -400,8 +440,7 @@ class DouyuSite implements LiveSite {
       queryParameters: {},
       header: {
         'referer': 'https://www.douyu.com/$roomId',
-        'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.43',
+        'user-agent': PlatformIdentity.douyuRoomUserAgent,
       },
     );
     Map roomInfo;
@@ -409,6 +448,10 @@ class DouyuSite implements LiveSite {
       roomInfo = json.decode(result)["room"];
     } else {
       roomInfo = result["room"];
+    }
+    if (roomInfo is! Map || roomInfo["room_id"] == null) {
+      // 关键字段缺失：斗鱼调整接口结构或房间异常时给语义化错误而非裸异常
+      throw CoreError("斗鱼房间数据结构变更或房间不存在，请稍后重试");
     }
     return roomInfo;
   }
@@ -440,7 +483,7 @@ class DouyuSite implements LiveSite {
       header: {
         ..._requestHeaders,
         'User-Agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36 Edg/114.0.1823.51',
+            PlatformIdentity.douyuSearchUserAgent,
         'referer': 'https://www.douyu.com/search/',
       },
     );
@@ -500,8 +543,7 @@ class DouyuSite implements LiveSite {
       queryParameters: {"rid": roomId},
       header: {
         'referer': 'https://www.douyu.com/$roomId',
-        'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+        'user-agent': PlatformIdentity.douyuUserAgent,
       },
     );
     final items = (result["data"]?["intimacyRank"] as List?) ?? const [];
