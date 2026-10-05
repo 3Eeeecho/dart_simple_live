@@ -24,7 +24,7 @@ void main() {
   group('douyu credential extraction (sync compatibility)', () {
     test('extracts ltp0 and dy_did from synced cookie', () {
       // 同步链路只传 cookie 字符串，接收端应能从中提取续期凭据
-      final cookie = 'dy_did=1234567890abcdef1234567890abcdef; '
+      const cookie = 'dy_did=1234567890abcdef1234567890abcdef; '
           'acf_did=1234567890abcdef1234567890abcdef; LTP0=renewal-token';
       expect(
         DouyuPassport.cookieValue(cookie, 'LTP0'),
