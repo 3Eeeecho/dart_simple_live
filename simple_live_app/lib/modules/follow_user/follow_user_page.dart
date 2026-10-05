@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:remixicon/remixicon.dart';
 import 'package:simple_live_app/app/app_style.dart';
@@ -835,11 +836,67 @@ class FollowUserPage extends GetView<FollowUserController> {
                         editTagDialog("修改标签", followUserTag: item);
                       },
                     ),
+                    subtitle: Text(
+                      "${item.userId.length} 个关注",
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
                     leading: IconButton(
                       icon: const Icon(Icons.delete),
+                      tooltip: "删除标签",
                       onPressed: () {
                         controller.removeTag(item);
                       },
+                    ),
+                    trailing: PopupMenuButton<String>(
+                      tooltip: "更多操作",
+                      onSelected: (value) {
+                        switch (value) {
+                          case "rename":
+                            editTagDialog("修改标签", followUserTag: item);
+                            break;
+                          case "addFollows":
+                            showFollowPickerForTag(item);
+                            break;
+                          case "merge":
+                            mergeTagDialog(item);
+                            break;
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem(
+                          value: "addFollows",
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.playlist_add),
+                              AppStyle.hGap12,
+                              Text("添加关注"),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: "rename",
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.edit_outlined),
+                              AppStyle.hGap12,
+                              Text("重命名"),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: "merge",
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.merge_type),
+                              AppStyle.hGap12,
+                              Text("合并到其他标签"),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   );
                 },
@@ -848,6 +905,148 @@ class FollowUserPage extends GetView<FollowUserController> {
                 },
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// 多选关注并加入指定标签
+  void showFollowPickerForTag(FollowUserTag tag) {
+    final follows = FollowService.instance.followList.toList();
+    if (follows.isEmpty) {
+      SmartDialog.showToast("还没有关注的直播间");
+      return;
+    }
+    final selected = <String>{};
+    Get.dialog(
+      StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            contentPadding: const EdgeInsets.all(16.0),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12.0),
+            ),
+            title: Text('添加关注到「${tag.tag}」'),
+            content: SizedBox(
+              width: 320,
+              height: 400,
+              child: ListView.builder(
+                itemCount: follows.length,
+                itemBuilder: (context, index) {
+                  final item = follows[index];
+                  final alreadyInTag = tag.userId.contains(item.id);
+                  return CheckboxListTile(
+                    dense: true,
+                    value: selected.contains(item.id) || alreadyInTag,
+                    onChanged: alreadyInTag
+                        ? null
+                        : (checked) {
+                            setState(() {
+                              checked == true
+                                  ? selected.add(item.id)
+                                  : selected.remove(item.id);
+                            });
+                          },
+                    title: Text(
+                      item.userName,
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: alreadyInTag ? Colors.grey : null,
+                      ),
+                    ),
+                    subtitle: Text(
+                      alreadyInTag ? "已在该标签" : "当前标签：${item.tag}",
+                      style: const TextStyle(fontSize: 11),
+                    ),
+                  );
+                },
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Get.back(), child: const Text("取消")),
+              TextButton(
+                onPressed: selected.isEmpty
+                    ? null
+                    : () async {
+                        Get.back();
+                        final (added, _) =
+                            await controller.moveFollowsToTag(
+                          selected.toList(),
+                          tag,
+                        );
+                        SmartDialog.showToast(
+                          "已添加 $added 个关注到「${tag.tag}」",
+                        );
+                      },
+                child: Text("加入(${selected.length})"),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// 把 source 标签合并到其他用户标签
+  void mergeTagDialog(FollowUserTag source) {
+    final candidates = controller.userTagList
+        .where((t) => t.id != source.id)
+        .toList();
+    if (candidates.isEmpty) {
+      SmartDialog.showToast("没有其他标签可合并");
+      return;
+    }
+    Rx<FollowUserTag> checkTag = candidates.first.obs;
+    Get.dialog(
+      AlertDialog(
+        contentPadding: const EdgeInsets.all(16.0),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12.0),
+        ),
+        title: Text('合并「${source.tag}」'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "选择合并目标：${source.tag} 的 ${source.userId.length} 个关注"
+              "将全部移入目标标签，源标签删除。",
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 240,
+              width: 300,
+              child: Obx(
+                () => RadioGroup<FollowUserTag>(
+                  groupValue: checkTag.value,
+                  onChanged: (value) => checkTag.value = value!,
+                  child: ListView.builder(
+                    itemCount: candidates.length,
+                    itemBuilder: (context, index) {
+                      final tagItem = candidates[index];
+                      return RadioListTile<FollowUserTag>(
+                        dense: true,
+                        title: Text(
+                          "${tagItem.tag}（${tagItem.userId.length}）",
+                        ),
+                        value: tagItem,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Get.back(), child: const Text("取消")),
+          TextButton(
+            onPressed: () {
+              Get.back();
+              controller.mergeTag(source, checkTag.value);
+            },
+            child: const Text("合并"),
           ),
         ],
       ),

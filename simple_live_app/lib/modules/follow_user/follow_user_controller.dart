@@ -43,6 +43,10 @@ class FollowGroupOption {
 class FollowUserController extends BasePageController<FollowUser> {
   static const int paginationThreshold = 400;
   static const String allTagId = "0";
+
+  /// 伪标签：按直播状态自动归类，不承载成员关系
+  static const String liveStatusTagId = "1";
+  static const String offlineStatusTagId = "2";
   StreamSubscription<dynamic>? onUpdatedIndexedStream;
   StreamSubscription<dynamic>? onUpdatedListStream;
 
@@ -587,6 +591,126 @@ class FollowUserController extends BasePageController<FollowUser> {
     updateItem(item);
     filterData();
   }
+
+  /// 把一批关注加入目标标签（标签管理里的"添加关注"入口）。
+  /// 分层校验：目标标签必须存在且不是伪标签（直播中/未开播）、
+  /// 关注必须真实存在、已在目标标签内的自动跳过、成员唯一。
+  /// 返回 (实际加入数, 已在标签内跳过数)。
+  Future<(int, int)> moveFollowsToTag(
+    List<String> followIds,
+    FollowUserTag targetTag,
+  ) async {
+    // 伪标签（直播中/未开播）不承载成员关系，禁止直接挂人
+    if (targetTag.id == liveStatusTagId || targetTag.id == offlineStatusTagId) {
+      SmartDialog.showToast("该标签按直播状态自动归类，不能手动添加关注");
+      return (0, 0);
+    }
+    final targetIsAll = targetTag.id == allTagId;
+    FollowUserTag? target;
+    if (!targetIsAll) {
+      for (final t in tagList) {
+        if (t.id == targetTag.id) {
+          target = t;
+          break;
+        }
+      }
+      if (target == null) {
+        SmartDialog.showToast("目标标签不存在");
+        return (0, 0);
+      }
+    }
+    final ids = followIds.toSet().toList();
+    var added = 0;
+    var skipped = 0;
+    for (final id in ids) {
+      final follow = DBService.instance.followBox.get(id);
+      if (follow == null) {
+        continue;
+      }
+      // 已在目标标签内：跳过（保证成员唯一）
+      if (target != null && target.userId.contains(follow.id)) {
+        skipped += 1;
+        continue;
+      }
+      // 从旧的用户标签移除（"全部"没有成员记录）
+      for (final t in tagList) {
+        if (t.id != allTagId &&
+            t.id != liveStatusTagId &&
+            t.id != offlineStatusTagId &&
+            t.tag == follow.tag) {
+          t.userId.remove(follow.id);
+          updateTag(t);
+          break;
+        }
+      }
+      if (target != null) {
+        target.userId.add(follow.id);
+        follow.tag = target.tag;
+      } else {
+        follow.tag = "全部";
+      }
+      updateItem(follow);
+      added += 1;
+    }
+    if (target != null) {
+      updateTag(target);
+    }
+    updateTagList();
+    filterData();
+    return (added, skipped);
+  }
+
+  /// 合并标签：把 source 的全部成员移入 target 后删除 source。
+  /// 仅用户自定义标签可参与合并；成员关系与关注项的标签字段同步修正。
+  Future<void> mergeTag(FollowUserTag source, FollowUserTag target) async {
+    if (source.id == target.id) {
+      SmartDialog.showToast("不能合并到自身");
+      return;
+    }
+    if (_isPseudoTagId(source.id) || _isPseudoTagId(target.id)) {
+      SmartDialog.showToast("系统标签不能参与合并");
+      return;
+    }
+    FollowUserTag? tar;
+    for (final t in tagList) {
+      if (t.id == target.id) {
+        tar = t;
+        break;
+      }
+    }
+    if (tar == null) {
+      SmartDialog.showToast("目标标签不存在");
+      return;
+    }
+    var moved = 0;
+    for (final id in source.userId) {
+      if (!tar.userId.contains(id)) {
+        tar.userId.add(id);
+        moved += 1;
+      }
+      final follow = DBService.instance.followBox.get(id);
+      if (follow != null) {
+        follow.tag = tar.tag;
+        updateItem(follow);
+      }
+    }
+    updateTag(tar);
+    // 成员已全部移出，清空并删除源标签
+    source.userId.clear();
+    updateTag(source);
+    await FollowService.instance.delFollowUserTag(source);
+    if (selectedTagId.value == source.id) {
+      selectedTagId.value = allTagId;
+    }
+    updateTagList();
+    filterData();
+    SmartDialog.showToast(
+      "已将「${source.tag}」合并到「${tar.tag}」（移入 $moved 个关注）",
+    );
+  }
+
+  bool _isPseudoTagId(String id) =>
+      id == allTagId || id == liveStatusTagId || id == offlineStatusTagId;
 
   Future<void> removeTag(FollowUserTag tag) async {
     // 将tag下的所有follow设置为全部

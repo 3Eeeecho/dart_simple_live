@@ -174,6 +174,10 @@ TV 下载建议：
 
 [EmojiAll 抖音平台表情](https://www.emojiall.com/zh-hans/platform-douyin) `感谢提供抖音平台表情参考，项目内仅作为本地静态表情资源使用`
 
+[SlotSun/dart_simple_live](https://github.com/SlotSun/dart_simple_live) `斗鱼 safeAuth Cookie 续期与 expire=0 断流缓解方案参考（其 v1.8.13，issue #182 / #177）`
+
+[fancerest-png/dart_simple_live](https://github.com/fancerest-png/dart_simple_live) `斗鱼扫码登录流程参考（PR #190 feat-douyu-qr-login 分支，经其文档核对）`
+
 ## 声明
 
 本项目的功能基于互联网上公开资料整理与开发，无任何破解、逆向工程等行为。
