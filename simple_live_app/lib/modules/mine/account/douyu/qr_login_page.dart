@@ -70,7 +70,7 @@ class DouyuQRLoginPage extends GetView<DouyuQRLoginController> {
           const Padding(
             padding: AppStyle.edgeInsetsA24,
             child: Text(
-              "请使用斗鱼APP扫描二维码，并在APP内确认登录\n登录后自动续期，无需定期重新配置 Cookie",
+              "请使用斗鱼APP扫描二维码，并在APP内确认登录\n登录后自动续期，无需定期重新配置 Cookie\n扫码确认在斗鱼APP内完成，登录凭证由斗鱼下发\n介意设备/位置信息记录的话，可改用手动粘贴 Cookie",
               textAlign: TextAlign.center,
             ),
           ),
