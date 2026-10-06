@@ -554,6 +554,26 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
   //final VolumeController volumeController = VolumeController();
 
   /// 初始化一些系统状态
+  /// macOS 沙盒环境探测：media_kit 每次打开媒体都会把播放列表写到
+  /// Directory.systemTemp（TMPDIR 异常时解析为 /tmp），沙盒进程写入失败
+  /// 会被 safe_local_storage 静默吞掉，用户侧表现为所有直播间无法播放。
+  /// 启动时探测一次并给出明确日志，避免这类环境问题只能靠 mpv 间接报错排查。
+  void _probeMediaKitTempDirectory() {
+    try {
+      final probe = File(
+        '${Directory.systemTemp.path}/simple_live_probe_${DateTime.now().millisecondsSinceEpoch}',
+      );
+      probe.writeAsStringSync('probe', flush: true);
+      probe.deleteSync();
+    } catch (e) {
+      Log.w(
+        "macOS 临时目录（${Directory.systemTemp.path}）不可写，"
+        "播放器将无法打开任何媒体：$e。"
+        "若从终端/第三方启动器启动，请检查 TMPDIR 环境变量。",
+      );
+    }
+  }
+
   Future<void> initSystem() async {
     final generation = ++_systemLifecycleGeneration;
     if (Platform.isAndroid) {
@@ -561,6 +581,9 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
     if (_playerClosing || generation != _systemLifecycleGeneration) {
       return;
+    }
+    if (Platform.isMacOS) {
+      _probeMediaKitTempDirectory();
     }
     if (Platform.isAndroid || Platform.isIOS) {
       VolumeController.instance.showSystemUI = false;
