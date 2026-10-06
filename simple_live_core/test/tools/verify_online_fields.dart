@@ -11,9 +11,9 @@
 /// totalUser 406万 ↔ totalPvForAnchor "406.0万"（累计，格式化互证）。
 ///
 /// 用法（在 simple_live_core 目录下）：
-///   dart run test/verify_online_fields.dart            # 自动找在线人数最多的直播间
-///   dart run test/verify_online_fields.dart <webRid>   # 指定房间
-/// 监听持续到 Ctrl+C 退出。
+///   dart run test/tools/verify_online_fields.dart            # 自动找在线人数最多的直播间
+///   dart run test/tools/verify_online_fields.dart <webRid>   # 指定房间
+/// 监听持续到 Ctrl+C 退出。详细说明见同目录 README.md。
 import 'package:simple_live_core/simple_live_core.dart';
 
 Future<void> main(List<String> args) async {
