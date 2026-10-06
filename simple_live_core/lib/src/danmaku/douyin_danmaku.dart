@@ -37,6 +37,10 @@ class DouyinDanmaku implements LiveDanmaku {
 
   @override
   Function(LiveMessage msg)? onMessage;
+
+  /// 诊断回调：RoomUserSeqMessage 原始消息（当前在线/累计观看/热度等字段核对）。
+  /// 仅诊断工具设置，App 内保持 null 无开销。
+  void Function(RoomUserSeqMessage message)? onRoomUserSeqDebug;
   @override
   Function(String msg)? onClose;
   @override
@@ -534,7 +538,7 @@ class DouyinDanmaku implements LiveDanmaku {
 
   void unPackWebcastRoomUserSeqMessage(List<int> payload) {
     var roomUserSeqMessage = RoomUserSeqMessage.fromBuffer(payload);
-
+    onRoomUserSeqDebug?.call(roomUserSeqMessage);
     onMessage?.call(
       LiveMessage(
         type: LiveMessageType.online,
