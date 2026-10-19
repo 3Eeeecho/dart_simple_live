@@ -25,8 +25,11 @@ class LiveMessage {
   final String message;
 
   /// 数据
-  /// 单Type=Online时，Data为人气值(long)
+  /// 单Type=Online时，Data为在线人数（抖音为当前在线，其余平台为各自在线口径）
   final dynamic data;
+
+  /// Type=Online 时的累计观看人数（目前仅抖音弹幕提供；其余平台为 null）
+  final int? totalViews;
 
   /// 弹幕颜色
   final LiveMessageColor color;
@@ -45,6 +48,7 @@ class LiveMessage {
     required this.userName,
     required this.message,
     this.data,
+    this.totalViews,
     required this.color,
     this.imageUrls,
     this.spans,

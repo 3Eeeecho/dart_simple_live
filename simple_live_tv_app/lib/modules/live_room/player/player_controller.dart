@@ -290,6 +290,20 @@ class PlayerController extends BaseController
   /// 视频输出失效回调，由 LiveRoomController 实现恢复（重开当前流）
   void onInvalidVideoSize() {}
 
+  Future<int?> readVideoOutputDropCount() async {
+    if (!Platform.isAndroid || player.platform is! NativePlayer) {
+      return null;
+    }
+    try {
+      final value = await (player.platform as NativePlayer)
+          .getProperty('frame-drop-count');
+      return int.tryParse(value.trim());
+    } catch (e) {
+      Log.d("读取 mpv 输出丢帧数失败: $e");
+      return null;
+    }
+  }
+
   /// 黑屏判据（音频时钟在走但视频不渲染，位置看门狗看不见）：
   /// mpv 的 vd（视频解码器）持续报 error 说明解码管线已挂，
   /// 按窗口计数超阈值即交由 onVideoDecodeStall 走停滞恢复链。

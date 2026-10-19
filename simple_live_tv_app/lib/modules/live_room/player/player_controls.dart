@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
+import 'package:simple_live_tv_app/app/constant.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_tv_app/app/sites.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
@@ -93,6 +94,17 @@ Widget buildControls(VideoState videoState, LiveRoomController controller) {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: AppStyle.textStyleWhite.copyWith(fontSize: 24.w),
+                      ),
+                      Obx(
+                        () => Text(
+                          controller.site.id == Constant.kDouyin
+                              ? "在线 ${Utils.onlineToString(controller.online.value)}  ·  累计 ${Utils.onlineToString(controller.totalViewers.value)}"
+                              : "在线 ${Utils.onlineToString(controller.online.value)}",
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              AppStyle.textStyleWhite.copyWith(fontSize: 20.w),
+                        ),
                       ),
                     ],
                   ),

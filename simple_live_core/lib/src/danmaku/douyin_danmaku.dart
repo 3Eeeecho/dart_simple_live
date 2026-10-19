@@ -539,10 +539,13 @@ class DouyinDanmaku implements LiveDanmaku {
   void unPackWebcastRoomUserSeqMessage(List<int> payload) {
     var roomUserSeqMessage = RoomUserSeqMessage.fromBuffer(payload);
     onRoomUserSeqDebug?.call(roomUserSeqMessage);
+    // data=当前在线（total），累计观看放 totalViews；此前只发 totalUser
+    // 会导致与 HTTP 轮询的"当前在线"轮流写入同一显示位，表现为数值来回跳
     onMessage?.call(
       LiveMessage(
         type: LiveMessageType.online,
-        data: roomUserSeqMessage.totalUser.toInt(),
+        data: roomUserSeqMessage.total.toInt(),
+        totalViews: roomUserSeqMessage.totalUser.toInt(),
         color: LiveMessageColor.white,
         message: "",
         userName: "",

@@ -197,8 +197,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     AppStyle.vGap12,
                     Obx(
                       () => Text(
-                        AppSettingsController
-                                .instance.okKeyTriggersPlayPause
+                        AppSettingsController.instance.okKeyTriggersPlayPause
                             ? "已暂停 · 按OK键或播放键继续"
                             : "已暂停 · 按播放键继续",
                         style: AppStyle.textStyleWhite,

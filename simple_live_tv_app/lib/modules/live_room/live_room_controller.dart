@@ -47,6 +47,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   Rx<LiveRoomDetail?> detail = Rx<LiveRoomDetail?>(null);
   var online = 0.obs;
+  var totalViewers = 0.obs;
   var followed = false.obs;
   var specialFollowed = false.obs;
   var liveStatus = false.obs;
@@ -96,6 +97,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
   Duration? _lastWatchdogPosition;
   int _stallSampleCount = 0;
   int _bufferingSampleCount = 0;
+  int? _lastVideoOutputDropCount;
+  int _videoOutputDropSamples = 0;
+  bool _outputDropSamplePending = false;
   bool _watchdogRefreshing = false;
   DateTime? _lastWatchdogRefreshAt;
 
@@ -345,18 +349,30 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
     _lastWatchdogPosition = null;
     _stallSampleCount = 0;
     _bufferingSampleCount = 0;
+    _videoOutputDropSamples = 0;
+    _lastVideoOutputDropCount = null;
     _playbackWatchdog = Timer.periodic(const Duration(seconds: 2), (timer) {
       if (isBackground || !liveStatus.value || userPaused.value) {
         _lastWatchdogPosition = null;
         _stallSampleCount = 0;
         _bufferingSampleCount = 0;
+        _videoOutputDropSamples = 0;
+        _lastVideoOutputDropCount = null;
+        _outputDropSamplePending = false;
         return;
       }
       if (!player.state.playing) {
         _lastWatchdogPosition = null;
         _stallSampleCount = 0;
         _bufferingSampleCount = 0;
+        _videoOutputDropSamples = 0;
+        _lastVideoOutputDropCount = null;
+        _outputDropSamplePending = false;
         return;
+      }
+      if (Platform.isAndroid && !_outputDropSamplePending) {
+        _outputDropSamplePending = true;
+        unawaited(_sampleAndroidVideoOutputDrops());
       }
       final position = player.state.position;
       final last = _lastWatchdogPosition;
@@ -390,6 +406,54 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       }
       _lastWatchdogPosition = position;
     });
+  }
+
+  Future<void> _sampleAndroidVideoOutputDrops() async {
+    try {
+      final dropCount = await readVideoOutputDropCount();
+      if (isBackground ||
+          userPaused.value ||
+          !liveStatus.value ||
+          !player.state.playing ||
+          dropCount == null ||
+          dropCount < 0) {
+        _lastVideoOutputDropCount = null;
+        _videoOutputDropSamples = 0;
+        return;
+      }
+      final previous = _lastVideoOutputDropCount;
+      _lastVideoOutputDropCount = dropCount;
+      if (previous == null || dropCount < previous) {
+        _videoOutputDropSamples = 0;
+        return;
+      }
+      final dropped = dropCount - previous;
+      if (dropped >= 25) {
+        _videoOutputDropSamples++;
+        Log.d("Android 视频输出窗口丢帧 $dropped（连续 $_videoOutputDropSamples/3）");
+      } else {
+        _videoOutputDropSamples = 0;
+      }
+      if (_videoOutputDropSamples >= 3 &&
+          !_watchdogRefreshing &&
+          (_lastWatchdogRefreshAt == null ||
+              DateTime.now().difference(_lastWatchdogRefreshAt!) >=
+                  const Duration(seconds: 8))) {
+        _videoOutputDropSamples = 0;
+        Log.w("Android 视频输出连续丢帧，触发播放恢复");
+        _watchdogRefreshing = true;
+        _lastWatchdogRefreshAt = DateTime.now();
+        unawaited(_refreshPlayerFromWatchdog().whenComplete(() {
+          _watchdogRefreshing = false;
+        }));
+      }
+    } catch (e, stackTrace) {
+      Log.e("采样 Android 视频输出丢帧数失败: $e", stackTrace);
+      _lastVideoOutputDropCount = null;
+      _videoOutputDropSamples = 0;
+    } finally {
+      _outputDropSamplePending = false;
+    }
   }
 
   /// 看门狗触发的恢复：重新拉流；取流/打开抛出的异常不再静默逃逸
@@ -713,6 +777,9 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       _queueDanmakuMessage(msg);
     } else if (msg.type == LiveMessageType.online) {
       online.value = msg.data;
+      if (msg.totalViews != null) {
+        totalViewers.value = msg.totalViews!;
+      }
     } else if (msg.type == LiveMessageType.superChat) {
       //superChats.add(msg.data);
     }
@@ -918,6 +985,7 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
 
   /// 加载直播间信息
   void loadData() async {
+    totalViewers.value = 0;
     playbackLoadError.value = "";
     _resetPlaybackRecoveryBookkeeping();
     // 换房丢弃上一间房的弹幕缓冲，避免旧房弹幕漏进新房
@@ -1192,7 +1260,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
         await setPlayer(refreshUrls: true);
       } catch (e, stackTrace) {
         Log.e("重签恢复失败：$e", stackTrace);
-        _markPlaybackGivenUp(fromError: fromError, error: error ?? e.toString());
+        _markPlaybackGivenUp(
+            fromError: fromError, error: error ?? e.toString());
         await _tryAutoSwitchToNextLiveRoom(
           reason: fromError ? "playback_failure" : "live_end",
         );
@@ -1317,7 +1386,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       if (liveStatus.value || _autoSwitchingRoom) {
         return;
       }
-      final switched = await _tryAutoSwitchToNextLiveRoom(reason: "room_offline");
+      final switched =
+          await _tryAutoSwitchToNextLiveRoom(reason: "room_offline");
       // 首次检索失败（网络抖动/状态缓存过期/触发风控）时延迟补一次，
       // 避免一次性错过换台窗口；每个房间只补一次
       if (!switched && !_offlineSwitchRetried) {
@@ -1341,9 +1411,8 @@ class LiveRoomController extends PlayerController with WidgetsBindingObserver {
       "live_end" => settings.autoSwitchNextOnLiveEnd.value,
       "playback_failure" => settings.autoSwitchNextOnPlaybackFailure.value,
       // 未开播房间：任一开关开启即检索，保持与“关播/播放失败后自动换台”一致的体验
-      _ =>
-        settings.autoSwitchNextOnLiveEnd.value ||
-            settings.autoSwitchNextOnPlaybackFailure.value,
+      _ => settings.autoSwitchNextOnLiveEnd.value ||
+          settings.autoSwitchNextOnPlaybackFailure.value,
     };
     if (!enabled || _autoSwitchingRoom) {
       return false;
