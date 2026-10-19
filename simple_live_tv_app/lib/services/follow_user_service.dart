@@ -34,6 +34,16 @@ class FollowUserService extends BasePageController<FollowUser> {
   RxList<FollowUser> allList = RxList<FollowUser>();
   RxList<FollowUser> livingList = RxList<FollowUser>();
 
+  /// 首页专用只读快照：与分页状态解耦，发布时整体替换
+  RxList<FollowUser> homeList = RxList<FollowUser>();
+
+  /// 视图修订号：任何一次发布都会 +1，供页面 Obx 订阅
+  var dataRevision = 0.obs;
+
+  /// 发布节流窗口：刷新时避免每条状态都重建整张网格
+  static const Duration publishInterval = Duration(milliseconds: 250);
+  DateTime? _lastPublishAt;
+
   /// 自定义标签列表（Hive 实体，与手机端 FollowUserTag 对齐）
   RxList<FollowUserTag> followTagList = RxList<FollowUserTag>();
   final Set<String> _previewRefreshingKeys = <String>{};
@@ -190,8 +200,7 @@ class FollowUserService extends BasePageController<FollowUser> {
           _distinctFollowUsers(DBService.instance.getFollowList())),
     );
     _validateSelectedTag();
-    updateLivingList();
-    sortList();
+    publishView(force: true);
     if (allList.isEmpty) {
       updating.value = false;
     }
@@ -276,9 +285,11 @@ class FollowUserService extends BasePageController<FollowUser> {
     allList.assignAll(_sortFollowUsers(allList));
     final displayList = _buildDisplaySource();
     paginationEnabled.value = displayList.length > paginationThreshold;
+    late final List<FollowUser> pageItems;
     if (!paginationEnabled.value) {
       currentDisplayPage.value = 1;
       totalDisplayPages.value = 1;
+      pageItems = displayList;
       list.assignAll(displayList);
     } else {
       final pageCount = _pageCountFor(displayList.length);
@@ -292,11 +303,37 @@ class FollowUserService extends BasePageController<FollowUser> {
       final pageSize = _effectivePageSizeFor(displayList.length);
       final start = (currentDisplayPage.value - 1) * pageSize;
       final end = (start + pageSize).clamp(0, displayList.length).toInt();
-      list.assignAll(displayList.sublist(start, end));
+      pageItems = displayList.sublist(start, end);
+      list.assignAll(pageItems);
     }
     currentPage = currentDisplayPage.value;
     canLoadMore.value = false;
     updateLivingList();
+    homeList.assignAll(pageItems);
+    dataRevision.value++;
+  }
+
+  /// 统一的视图发布入口。
+  /// 刷新过程中按 publishInterval 节流，让首页/关注页跟着进度更新；
+  /// 刷新结束、标签/搜索变化、本地重载时用 force: true 立即发布。
+  void publishView({bool force = false}) {
+    final now = DateTime.now();
+    if (!shouldPublishNow(
+      now: now,
+      last: _lastPublishAt,
+      interval: publishInterval,
+      force: force,
+    )) {
+      return;
+    }
+    _lastPublishAt = now;
+    allList.assignAll(_sortFollowUsers(allList));
+    sortList();
+    Log.i(
+      "关注视图发布 rev=${dataRevision.value} all=${allList.length} "
+      "list=${list.length} home=${homeList.length} "
+      "living=${livingList.length} force=$force",
+    );
   }
 
   int _effectivePageSizeFor(int total) {
@@ -364,17 +401,12 @@ class FollowUserService extends BasePageController<FollowUser> {
   }
 
   List<FollowUser> _buildDisplaySource() {
-    Iterable<FollowUser> items = _buildSelectedTagList();
-    if (AppSettingsController.instance.followOnlyLive.value) {
-      items = items.where((item) => item.liveStatus.value == 2);
-    }
-    final keyword = searchKeyword.value.trim().toLowerCase();
-    if (keyword.isNotEmpty) {
-      items = items.where(
-        (item) => item.userName.toLowerCase().contains(keyword),
-      );
-    }
-    return _sortFollowUsers(items);
+    return buildFollowDisplayList(
+      allList,
+      tagName: selectedTagName.value,
+      onlyLive: AppSettingsController.instance.followOnlyLive.value,
+      keyword: searchKeyword.value,
+    );
   }
 
   List<FollowUser> _buildSelectedTagList() {
@@ -599,18 +631,7 @@ class FollowUserService extends BasePageController<FollowUser> {
   }
 
   List<FollowUser> _distinctFollowUsers(Iterable<FollowUser> items) {
-    final result = <FollowUser>[];
-    final seenIds = <String>{};
-    for (final item in items) {
-      final siteId = item.siteId.trim();
-      final roomId = item.roomId.trim();
-      final uniqueId =
-          siteId.isEmpty || roomId.isEmpty ? item.id.trim() : "$siteId|$roomId";
-      if (seenIds.add(uniqueId)) {
-        result.add(item);
-      }
-    }
-    return result;
+    return distinctFollowUsers(items);
   }
 
   String _refreshTargetKey(FollowUser item) {
@@ -732,15 +753,7 @@ class FollowUserService extends BasePageController<FollowUser> {
   }
 
   int compareFollowUsers(FollowUser a, FollowUser b) {
-    if (a.isSpecialFollow != b.isSpecialFollow) {
-      return a.isSpecialFollow ? -1 : 1;
-    }
-    final aLiving = a.liveStatus.value == 2;
-    final bLiving = b.liveStatus.value == 2;
-    if (aLiving != bLiving) {
-      return aLiving ? -1 : 1;
-    }
-    return b.addTime.compareTo(a.addTime);
+    return compareFollowUsersValue(a, b);
   }
 
   void updateLivingList() {
@@ -1192,6 +1205,8 @@ class FollowUserService extends BasePageController<FollowUser> {
             );
           }
           updateProgress(active: true, done: false);
+          // 节流发布：首页/关注页跟随刷新进度更新（内部 250ms 丢弃）
+          publishView();
         }
       }
 
@@ -1204,7 +1219,7 @@ class FollowUserService extends BasePageController<FollowUser> {
       if (generation != _updateGeneration) {
         return;
       }
-      sortList();
+      publishView(force: true);
       if (douyinLimiter != null) {
         final summary = douyinLimiter.finish(douyinTargetCount);
         Log.i(
@@ -1249,10 +1264,14 @@ class FollowUserService extends BasePageController<FollowUser> {
             progressScopeKey: resolvedScope.scopeKey,
             automatic: automatic,
           );
+          // 元数据阶段还会改直播状态/封面，必须再发布一次
+          publishView(force: true);
         }
       }
     } finally {
       if (generation == _updateGeneration) {
+        // 无论成功、被顶掉还是提前返回，都保证视图与内存状态一致
+        publishView(force: true);
         updating.value = false;
         _finishRefreshProgressLifecycle(generation);
       }
@@ -1783,6 +1802,75 @@ class DouyinFollowRefreshLimiter {
       elapsed: _stopwatch.elapsed,
     );
   }
+}
+
+/// 发布节流判定（纯函数，便于单测）：force 立即发布，否则需间隔 [interval]。
+bool shouldPublishNow({
+  required DateTime now,
+  required DateTime? last,
+  required Duration interval,
+  required bool force,
+}) {
+  if (force) {
+    return true;
+  }
+  if (last == null) {
+    return true;
+  }
+  return now.difference(last) >= interval;
+}
+
+/// 关注卡片排序：特别关注 > 直播中 > 关注时间倒序。
+int compareFollowUsersValue(FollowUser a, FollowUser b) {
+  if (a.isSpecialFollow != b.isSpecialFollow) {
+    return a.isSpecialFollow ? -1 : 1;
+  }
+  final aLiving = a.liveStatus.value == 2;
+  final bLiving = b.liveStatus.value == 2;
+  if (aLiving != bLiving) {
+    return aLiving ? -1 : 1;
+  }
+  return b.addTime.compareTo(a.addTime);
+}
+
+/// 按 siteId|roomId 去重（保留首次出现），与旧实现保持一致。
+List<FollowUser> distinctFollowUsers(Iterable<FollowUser> items) {
+  final result = <FollowUser>[];
+  final seenIds = <String>{};
+  for (final item in items) {
+    final siteId = item.siteId.trim();
+    final roomId = item.roomId.trim();
+    final uniqueId =
+        siteId.isEmpty || roomId.isEmpty ? item.id.trim() : "$siteId|$roomId";
+    if (seenIds.add(uniqueId)) {
+      result.add(item);
+    }
+  }
+  return result;
+}
+
+/// 关注列表的展示顺序（纯函数，便于单测）：
+/// 按标签过滤 → 只看直播 → 关键字 → 去重 → 排序。
+List<FollowUser> buildFollowDisplayList(
+  Iterable<FollowUser> all, {
+  required String tagName,
+  required bool onlyLive,
+  required String keyword,
+}) {
+  Iterable<FollowUser> items = all;
+  if (tagName != FollowUserService.allTagName) {
+    items = items.where((item) => item.tag.trim() == tagName);
+  }
+  if (onlyLive) {
+    items = items.where((item) => item.liveStatus.value == 2);
+  }
+  final trimmed = keyword.trim().toLowerCase();
+  if (trimmed.isNotEmpty) {
+    items = items.where(
+      (item) => item.userName.toLowerCase().contains(trimmed),
+    );
+  }
+  return distinctFollowUsers(items)..sort(compareFollowUsersValue);
 }
 
 class DouyinFollowRefreshSummary {

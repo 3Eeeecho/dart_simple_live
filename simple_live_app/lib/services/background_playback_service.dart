@@ -82,10 +82,15 @@ class BackgroundPlaybackService {
     return null;
   }
 
+  /// 是否向系统申请音频焦点。关闭后可与其它应用同时出声。
+  bool _requestAudioFocus = true;
+  bool get requestAudioFocus => _requestAudioFocus;
+
   Map<String, dynamic> get _arguments => {
         'state': _state,
         'title': _title,
         'subtitle': _subtitle,
+        'requestAudioFocus': _requestAudioFocus,
       };
 
   /// 启动后台播放前台服务。
@@ -94,6 +99,7 @@ class BackgroundPlaybackService {
     String state = BackgroundPlaybackState.playing,
     String title = '',
     String subtitle = '',
+    bool requestAudioFocus = true,
   }) async {
     if (!Platform.isAndroid) {
       return false;
@@ -101,6 +107,7 @@ class BackgroundPlaybackService {
     _state = state;
     _title = title;
     _subtitle = subtitle;
+    _requestAudioFocus = requestAudioFocus;
     if (_running) {
       await _update();
       return true;
@@ -121,6 +128,7 @@ class BackgroundPlaybackService {
     String? state,
     String? title,
     String? subtitle,
+    bool? requestAudioFocus,
   }) async {
     if (!Platform.isAndroid) {
       return;
@@ -128,6 +136,7 @@ class BackgroundPlaybackService {
     if (state != null) _state = state;
     if (title != null) _title = title;
     if (subtitle != null) _subtitle = subtitle;
+    if (requestAudioFocus != null) _requestAudioFocus = requestAudioFocus;
     if (!_running) {
       return;
     }
@@ -156,6 +165,18 @@ class BackgroundPlaybackService {
       _running = false;
       _state = BackgroundPlaybackState.playing;
     }
+  }
+
+  /// 设置切换后立即让运行中的前台服务重新评估音频焦点策略。
+  Future<void> applyAudioFocusPreference({bool? requestAudioFocus}) async {
+    if (!Platform.isAndroid) {
+      return;
+    }
+    _requestAudioFocus = requestAudioFocus ?? _requestAudioFocus;
+    if (!_running) {
+      return;
+    }
+    await _update();
   }
 
   /// 是否已加入电池优化白名单

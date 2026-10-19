@@ -31,19 +31,26 @@ class BackgroundPlaybackService : Service() {
     private var audioFocusRequest: AudioFocusRequest? = null
     private var focusRequested = false
 
+    /// 关闭后不再向系统申请音频焦点，可与其它应用同时出声。
+    private var requestAudioFocusEnabled = true
+
     private var currentState = STATE_PLAYING
     private var currentTitle = ""
     private var currentSubtitle = ""
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
-        val state = when (change) {
-            AudioManager.AUDIOFOCUS_GAIN -> "gain"
-            AudioManager.AUDIOFOCUS_LOSS -> "loss"
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "loss_transient"
-            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "can_duck"
-            else -> "unknown"
+        // 用户选择了“与其他应用同时播放”时忽略焦点回调，不暂停、不闪避。
+        if (requestAudioFocusEnabled) {
+            emit(EVENT_AUDIO_FOCUS, mapOf("state" to focusStateOf(change)))
         }
-        emit(EVENT_AUDIO_FOCUS, mapOf("state" to state))
+    }
+
+    private fun focusStateOf(change: Int): String = when (change) {
+        AudioManager.AUDIOFOCUS_GAIN -> "gain"
+        AudioManager.AUDIOFOCUS_LOSS -> "loss"
+        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> "loss_transient"
+        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> "can_duck"
+        else -> "unknown"
     }
 
     private val sessionCallback = object : MediaSessionCompat.Callback() {
@@ -79,7 +86,7 @@ class BackgroundPlaybackService : Service() {
             applyExtras(it)
         }
         promoteToForeground(buildNotification())
-        requestAudioFocus()
+        applyAudioFocusPolicy()
         return START_NOT_STICKY
     }
 
@@ -87,6 +94,10 @@ class BackgroundPlaybackService : Service() {
         intent.getStringExtra(EXTRA_STATE)?.let { currentState = it }
         intent.getStringExtra(EXTRA_TITLE)?.let { currentTitle = it }
         intent.getStringExtra(EXTRA_SUBTITLE)?.let { currentSubtitle = it }
+        if (intent.hasExtra(EXTRA_REQUEST_AUDIO_FOCUS)) {
+            requestAudioFocusEnabled =
+                intent.getBooleanExtra(EXTRA_REQUEST_AUDIO_FOCUS, true)
+        }
         updateMediaSession()
     }
 
@@ -149,6 +160,14 @@ class BackgroundPlaybackService : Service() {
             }
         } catch (t: Throwable) {
             Log.w(TAG, "acquireWifiLock failed: ${t.message}")
+        }
+    }
+
+    private fun applyAudioFocusPolicy() {
+        if (requestAudioFocusEnabled) {
+            requestAudioFocus()
+        } else {
+            abandonAudioFocus()
         }
     }
 
@@ -339,6 +358,7 @@ class BackgroundPlaybackService : Service() {
         const val EXTRA_TITLE = "title"
         const val EXTRA_SUBTITLE = "subtitle"
         const val EXTRA_MEDIA_ACTION = "media_action"
+        const val EXTRA_REQUEST_AUDIO_FOCUS = "requestAudioFocus"
 
         const val EVENT_MEDIA_BUTTON = "mediaButton"
         const val EVENT_AUDIO_FOCUS = "audioFocus"

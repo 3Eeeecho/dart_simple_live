@@ -43,6 +43,8 @@ class ProfileBackupService extends GetxService {
   /// 里还包含 WebDAV 凭据等允许随该通道迁移的键，不能混用）。
   static const Set<String> deviceLocalSettings = {
     LocalStorageService.kDouyuDeviceId,
+    // 全屏方向依设备形态而定（手机/平板不同），不随同步迁移
+    LocalStorageService.kPlayerFullscreenOrientation,
   };
 
   /// 导出/上传前剔除本机专属键

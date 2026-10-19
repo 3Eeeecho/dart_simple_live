@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/modules/mine/account/douyu/qr_login_controller.dart';
 import 'package:simple_live_app/modules/mine/account/douyu/qr_login_page.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/services/bilibili_account_service.dart';
@@ -131,7 +132,12 @@ class AccountController extends GetxController {
             trailing: const Icon(Icons.chevron_right),
             onTap: () {
               Get.back();
-              Get.to(() => const DouyuQRLoginPage());
+              Get.to(
+                () => const DouyuQRLoginPage(),
+                // GetView<DouyuQRLoginController> 需要用 Get.find 取控制器，
+                // 直接 Get.to 不会执行任何 binding，必须在这里补上。
+                binding: BindingsBuilder.put(() => DouyuQRLoginController()),
+              );
             },
           ),
           ListTile(

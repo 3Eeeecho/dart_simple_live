@@ -175,6 +175,10 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kAutoFullScreen, false);
     autoPipOnExit.value = LocalStorageService.instance
         .getValue(LocalStorageService.kAutoPipOnExit, false);
+    fullscreenOrientation.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kPlayerFullscreenOrientation, "smart");
+    allowConcurrentAudio.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kAllowConcurrentAudio, false);
     playershowSuperChat.value = LocalStorageService.instance
         .getValue(LocalStorageService.kPlayerShowSuperChat, false);
 
@@ -1086,6 +1090,27 @@ class AppSettingsController extends GetxController {
     autoPipOnExit.value = e;
     LocalStorageService.instance
         .setValue(LocalStorageService.kAutoPipOnExit, e);
+  }
+
+  /// 全屏播放方向策略
+  /// * smart     智能：小屏设备全屏横屏直播自动横屏，大屏跟随系统（默认，历史行为）
+  /// * landscape 强制横屏：任何设备全屏时都尝试横屏（平板锁定竖屏时使用）
+  /// * system    跟随系统：从不请求方向
+  var fullscreenOrientation = "smart".obs;
+  void setFullscreenOrientation(String e) {
+    final value =
+        const {"smart", "landscape", "system"}.contains(e) ? e : "smart";
+    fullscreenOrientation.value = value;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kPlayerFullscreenOrientation, value);
+  }
+
+  /// 是否允许与其它应用同时出声（不申请音频焦点）
+  var allowConcurrentAudio = false.obs;
+  void setAllowConcurrentAudio(bool e) {
+    allowConcurrentAudio.value = e;
+    LocalStorageService.instance
+        .setValue(LocalStorageService.kAllowConcurrentAudio, e);
   }
 
   var playershowSuperChat = false.obs;

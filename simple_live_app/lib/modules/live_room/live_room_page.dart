@@ -783,11 +783,15 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                         width: 20,
                       ),
                       AppStyle.hGap4,
-                      Text(
-                        controller.site.name,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
+                      Flexible(
+                        child: Text(
+                          controller.site.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
                     ],
@@ -796,21 +800,43 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               ),
             ),
             AppStyle.hGap12,
-            Row(
+            Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(
-                  Remix.fire_fill,
-                  size: 20,
-                  color: Colors.orange,
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Remix.fire_fill,
+                      size: 16,
+                      color: Colors.orange,
+                    ),
+                    AppStyle.hGap2,
+                    Text(
+                      "在线 ${Utils.onlineToString(controller.online.value)}",
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ],
                 ),
-                AppStyle.hGap4,
-                Text(
-                  Utils.onlineToString(
-                    controller.online.value,
+                if (controller.site.id == Constant.kDouyin) ...[
+                  AppStyle.vGap2,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Remix.user_3_line,
+                        size: 13,
+                        color: Colors.blueGrey,
+                      ),
+                      AppStyle.hGap2,
+                      Text(
+                        "累计 ${Utils.onlineToString(controller.totalViewers.value)}",
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ],
                   ),
-                  style: const TextStyle(fontSize: 14),
-                ),
+                ],
               ],
             ),
           ],

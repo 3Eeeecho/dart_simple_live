@@ -30,6 +30,9 @@ class _FollowUserPageState extends State<FollowUserPage> {
   final Map<String, AppFocusNode> _focusNodes = <String, AppFocusNode>{};
   final AppFocusNode _pageFocusNode = AppFocusNode();
 
+  /// 上一次触发封面补齐的发布修订号：避免每次重建都发起网络请求
+  int _lastPreviewRevision = -1;
+
   @override
   void initState() {
     super.initState();
@@ -202,10 +205,17 @@ class _FollowUserPageState extends State<FollowUserPage> {
               child: Stack(
                 children: [
                   Obx(() {
+                    // 订阅发布修订号；取不可变快照供 GridView 使用
+                    final revision =
+                        FollowUserService.instance.dataRevision.value;
                     final layout = _layoutSpec();
-                    final items = FollowUserService.instance.list;
+                    final items = FollowUserService.instance.list
+                        .toList(growable: false);
                     if (AppSettingsController
-                        .instance.followShowLiveCover.value) {
+                            .instance.followShowLiveCover.value &&
+                        !FollowUserService.instance.updating.value &&
+                        revision != _lastPreviewRevision) {
+                      _lastPreviewRevision = revision;
                       WidgetsBinding.instance.addPostFrameCallback((_) {
                         unawaited(
                           FollowUserService.instance

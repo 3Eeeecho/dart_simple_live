@@ -6,6 +6,7 @@ import 'package:simple_live_core/simple_live_core.dart';
 import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/controller/base_controller.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
+import 'package:simple_live_tv_app/modules/account/douyu/qr_login_controller.dart';
 import 'package:simple_live_tv_app/modules/account/douyu/qr_login_page.dart';
 import 'package:simple_live_tv_app/routes/app_navigation.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
@@ -260,7 +261,11 @@ class SettingsController extends BaseController
     );
     switch (action) {
       case "扫码登录":
-        Get.to(() => const DouyuQRLoginPage());
+        Get.to(
+          () => const DouyuQRLoginPage(),
+          // 同上：GetView 需要控制器绑定，否则页面一 build 就抛 not found。
+          binding: BindingsBuilder.put(() => DouyuQRLoginController()),
+        );
         break;
       case "手动配置 Cookie":
         await _editDouyuCookie();

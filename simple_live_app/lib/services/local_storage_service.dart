@@ -73,6 +73,9 @@ class LocalStorageService extends GetxService {
   static const String kPlayerCompatMode = "PlayerCompatMode";
   static const String kPlayerAutoPause = "PlayerAutoPause";
   static const String kAllowBackgroundPlayback = "AllowBackgroundPlayback";
+  static const String kPlayerFullscreenOrientation =
+      "PlayerFullscreenOrientation";
+  static const String kAllowConcurrentAudio = "AllowConcurrentAudio";
   static const String kPlayerBufferSize = "PlayerBufferSize";
   static const String kPlayerForceHttps = "PlayerForceHttps";
   static const String kPlayerGestureControlEnable =

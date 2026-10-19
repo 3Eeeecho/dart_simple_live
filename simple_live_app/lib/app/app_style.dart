@@ -113,6 +113,9 @@ class AppStyle {
     //   ),
     // ),
   );
+  static const vGap2 = SizedBox(
+    height: 2,
+  );
   static const vGap4 = SizedBox(
     height: 4,
   );
@@ -132,6 +135,9 @@ class AppStyle {
     height: 48,
   );
 
+  static const hGap2 = SizedBox(
+    width: 2,
+  );
   static const hGap4 = SizedBox(
     width: 4,
   );

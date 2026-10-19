@@ -196,27 +196,33 @@ class HomePage extends GetView<HomeController> {
                 ),
                 AppStyle.vGap32,
                 Obx(
-                  () => MasonryGridView.count(
-                    padding: AppStyle.edgeInsetsH48,
-                    itemCount: FollowUserService.instance.list.length,
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 48.w,
-                    mainAxisSpacing: 48.w,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemBuilder: (_, i) {
-                      var item = FollowUserService.instance.list[i];
-                      return Obx(
-                        () => AnchorCard(
-                          face: item.face,
-                          name: item.userName,
-                          siteId: item.siteId,
-                          liveStatus: item.liveStatus.value,
-                          roomId: item.roomId,
-                        ),
-                      );
-                    },
-                  ),
+                  () {
+                    // 订阅发布修订号；同一帧内固化快照，避免构建期列表被替换
+                    FollowUserService.instance.dataRevision.value;
+                    final items = FollowUserService.instance.homeList
+                        .toList(growable: false);
+                    return MasonryGridView.count(
+                      padding: AppStyle.edgeInsetsH48,
+                      itemCount: items.length,
+                      crossAxisCount: 3,
+                      crossAxisSpacing: 48.w,
+                      mainAxisSpacing: 48.w,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemBuilder: (_, i) {
+                        final item = items[i];
+                        return Obx(
+                          () => AnchorCard(
+                            face: item.face,
+                            name: item.userName,
+                            siteId: item.siteId,
+                            liveStatus: item.liveStatus.value,
+                            roomId: item.roomId,
+                          ),
+                        );
+                      },
+                    );
+                  },
                 ),
                 Obx(
                   () => Visibility(

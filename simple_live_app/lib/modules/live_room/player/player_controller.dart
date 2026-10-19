@@ -80,20 +80,61 @@ bool shouldRequestLandscapeForAndroidExternalWindow({
       canLockOrientation;
 }
 
-bool shouldRestoreAndroidFullscreenAfterExternalWindowExit({
+/// 系统外部窗口（小窗/自由窗/分屏）展开回普通任务后，是否需要重新进入沉浸式。
+/// 这里不再复用方向策略：平板同样需要恢复沉浸式，只是方向交给系统。
+bool shouldRestoreImmersiveAfterExternalWindowExit({
   required bool wasInExternalWindow,
   required bool isInExternalWindow,
   required bool playerFullscreen,
-  required bool hasPendingLandscapeRequest,
-  required bool isVerticalVideo,
-  required bool canLockOrientation,
 }) {
-  return wasInExternalWindow &&
-      !isInExternalWindow &&
-      playerFullscreen &&
-      hasPendingLandscapeRequest &&
-      !isVerticalVideo &&
-      canLockOrientation;
+  return wasInExternalWindow && !isInExternalWindow && playerFullscreen;
+}
+
+/// 全屏播放方向策略（设置项“全屏方向”）
+enum PlayerFullscreenOrientationPolicy {
+  /// 智能：小屏设备全屏横屏直播自动横屏，大屏跟随系统（历史行为）
+  smart,
+
+  /// 强制横屏：任何设备全屏都尝试横屏（平板锁定竖屏时使用）
+  landscape,
+
+  /// 跟随系统：从不请求方向
+  system,
+}
+
+PlayerFullscreenOrientationPolicy resolvePlayerFullscreenOrientationPolicy(
+  String? value,
+) {
+  switch (value) {
+    case "landscape":
+      return PlayerFullscreenOrientationPolicy.landscape;
+    case "system":
+      return PlayerFullscreenOrientationPolicy.system;
+    default:
+      return PlayerFullscreenOrientationPolicy.smart;
+  }
+}
+
+/// 当前策略下，本次全屏是否应当请求横屏。
+/// [isExternalWindow] 只是语义标注：外部窗口与普通全屏在策略上一致，
+/// 差别由调用方（是否立即请求、是否挂起 pending）决定。
+bool shouldRequestAndroidPlayerLandscape({
+  required PlayerFullscreenOrientationPolicy policy,
+  required bool isVerticalVideo,
+  required bool isExternalWindow,
+  required bool isCompactDisplay,
+}) {
+  if (isVerticalVideo) {
+    return false;
+  }
+  switch (policy) {
+    case PlayerFullscreenOrientationPolicy.system:
+      return false;
+    case PlayerFullscreenOrientationPolicy.landscape:
+      return true;
+    case PlayerFullscreenOrientationPolicy.smart:
+      return isCompactDisplay;
+  }
 }
 
 class _DanmakuReplayEntry {
@@ -649,14 +690,20 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     }
     fullScreenState.value = true;
     if (Platform.isAndroid || Platform.isIOS) {
+      var androidRequestLandscape = false;
       if (Platform.isAndroid) {
         await _refreshAndroidWindowState();
-        final canLockAndroidOrientation =
-            _shouldUseAndroidPhoneOrientationPolicy();
+        final isCompactDisplay = _shouldUseAndroidPhoneOrientationPolicy();
         final isExternalWindow = isAndroidExternalPlayerWindow(
           inPip: androidInPipState.value,
           inMultiWindow: androidInMultiWindowState.value,
           isFreeform: androidFreeformState.value,
+        );
+        final requestLandscape = shouldRequestAndroidPlayerLandscape(
+          policy: _playerFullscreenOrientationPolicy(),
+          isVerticalVideo: isVertical.value,
+          isExternalWindow: isExternalWindow,
+          isCompactDisplay: isCompactDisplay,
         );
         if (isExternalWindow) {
           // A system freeform/split window owns its bounds. Only switch the
@@ -664,21 +711,14 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
           // OEM freeform windows are only reported as multi-window, but both
           // modes can honour an orientation request. Do not leave a landscape
           // stream trapped in the portrait floating window.
-          _androidLandscapePendingAfterExternalWindow =
-              canLockAndroidOrientation && !isVertical.value;
-          if (shouldRequestLandscapeForAndroidExternalWindow(
-            inPip: androidInPipState.value,
-            inMultiWindow: androidInMultiWindowState.value,
-            isFreeform: androidFreeformState.value,
-            playerFullscreen: fullScreenState.value,
-            isVerticalVideo: isVertical.value,
-            canLockOrientation: canLockAndroidOrientation,
-          )) {
+          _androidLandscapePendingAfterExternalWindow = requestLandscape;
+          if (requestLandscape) {
             await setLandscapeOrientation();
           }
           return;
         }
         _androidLandscapePendingAfterExternalWindow = false;
+        androidRequestLandscape = requestLandscape;
       }
       //全屏
       await SystemChrome.setEnabledSystemUIMode(
@@ -687,7 +727,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       );
       _mobileSystemUiApplied = true;
       if (!isVertical.value &&
-          (!Platform.isAndroid || _shouldUseAndroidPhoneOrientationPolicy())) {
+          (!Platform.isAndroid || androidRequestLandscape)) {
         //横屏
         await setLandscapeOrientation();
       }
@@ -1035,6 +1075,30 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     );
   }
 
+  PlayerFullscreenOrientationPolicy _playerFullscreenOrientationPolicy() {
+    return resolvePlayerFullscreenOrientationPolicy(
+      AppSettingsController.instance.fullscreenOrientation.value,
+    );
+  }
+
+  /// 退出全屏时是否强制回竖屏。
+  /// 手机沿用历史行为（含 OEM 小窗任务的竖屏恢复），大屏交还系统方向策略。
+  bool _shouldForcePortraitOnPlayerExit() {
+    return _playerFullscreenOrientationPolicy() !=
+            PlayerFullscreenOrientationPolicy.system &&
+        _shouldUseAndroidPhoneOrientationPolicy();
+  }
+
+  /// 当前策略下是否允许为全屏播放请求横屏（外部窗口与普通全屏一致）。
+  bool _canRequestAndroidLandscapeForPolicy({required bool isExternalWindow}) {
+    return shouldRequestAndroidPlayerLandscape(
+      policy: _playerFullscreenOrientationPolicy(),
+      isVerticalVideo: isVertical.value,
+      isExternalWindow: isExternalWindow,
+      isCompactDisplay: _shouldUseAndroidPhoneOrientationPolicy(),
+    );
+  }
+
   /// 设置横屏
   Future setLandscapeOrientation() async {
     if (await beforeIOS16()) {
@@ -1069,7 +1133,7 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
       return;
     }
     if (Platform.isAndroid) {
-      if (_shouldUseAndroidPhoneOrientationPolicy()) {
+      if (_shouldForcePortraitOnPlayerExit()) {
         await setPortraitOrientation();
       } else {
         await SystemChrome.setPreferredOrientations(DeviceOrientation.values);
@@ -1278,13 +1342,10 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     androidInMultiWindowState.value = inMultiWindow;
     androidFreeformState.value = isFreeform;
     unawaited(_syncAndroidExternalWindowLandscapeOrientation());
-    if (shouldRestoreAndroidFullscreenAfterExternalWindowExit(
+    if (shouldRestoreImmersiveAfterExternalWindowExit(
       wasInExternalWindow: wasInExternalWindow,
       isInExternalWindow: isInExternalWindow,
       playerFullscreen: fullScreenState.value,
-      hasPendingLandscapeRequest: _androidLandscapePendingAfterExternalWindow,
-      isVerticalVideo: isVertical.value,
-      canLockOrientation: _shouldUseAndroidPhoneOrientationPolicy(),
     )) {
       unawaited(_restoreAndroidFullscreenAfterExternalWindowExit());
     }
@@ -1306,7 +1367,9 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
           isFreeform: androidFreeformState.value,
           playerFullscreen: fullScreenState.value,
           isVerticalVideo: isVertical.value,
-          canLockOrientation: _shouldUseAndroidPhoneOrientationPolicy(),
+          canLockOrientation: _canRequestAndroidLandscapeForPolicy(
+            isExternalWindow: true,
+          ),
         )) {
       return;
     }
@@ -1326,9 +1389,6 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
     if (!Platform.isAndroid ||
         token != _androidExternalWindowExitGeneration ||
         !fullScreenState.value ||
-        isVertical.value ||
-        !_shouldUseAndroidPhoneOrientationPolicy() ||
-        !_androidLandscapePendingAfterExternalWindow ||
         isAndroidExternalPlayerWindow(
           inPip: androidInPipState.value,
           inMultiWindow: androidInMultiWindowState.value,
@@ -1336,16 +1396,26 @@ mixin PlayerSystemMixin on PlayerMixin, PlayerStateMixin, PlayerDanmakuMixin {
         )) {
       return;
     }
+    final restoreImmersive = !_mobileSystemUiApplied;
+    final restoreLandscape = _androidLandscapePendingAfterExternalWindow &&
+        _canRequestAndroidLandscapeForPolicy(isExternalWindow: false);
+    if (!restoreImmersive && !restoreLandscape) {
+      return;
+    }
     try {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.manual,
-        overlays: [],
-      );
-      _mobileSystemUiApplied = true;
-      await setLandscapeOrientation();
+      if (restoreImmersive) {
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.manual,
+          overlays: [],
+        );
+        _mobileSystemUiApplied = true;
+      }
+      if (restoreLandscape) {
+        await setLandscapeOrientation();
+      }
       _androidLandscapePendingAfterExternalWindow = false;
     } catch (e) {
-      Log.d("系统小窗展开后恢复横屏失败: $e");
+      Log.d("系统小窗展开后恢复全屏失败: $e");
     }
   }
 
@@ -2447,6 +2517,20 @@ class PlayerController extends BaseController
 
   // Fix Issue #57 & #97: 处理异常的视频尺寸（Surface失效）。
   // Recovery is bounded and serialized so startup events cannot storm the decoder.
+  Future<int?> readVideoOutputDropCount() async {
+    if (!Platform.isAndroid || player.platform is! NativePlayer) {
+      return null;
+    }
+    try {
+      final value = await (player.platform as NativePlayer)
+          .getProperty('frame-drop-count');
+      return int.tryParse(value.trim());
+    } catch (e) {
+      Log.d("读取 mpv 输出丢帧数失败: $e", false);
+      return null;
+    }
+  }
+
   /// 黑屏判据（音频时钟在走但视频不渲染，位置看门狗看不见）：
   /// mpv 的 vd（视频解码器）持续报 error 说明解码管线已挂，
   /// 按窗口计数超阈值即交由 onVideoDecodeStall 走停滞恢复链。
@@ -2773,17 +2857,21 @@ class PlayerController extends BaseController
         : (player.state.playing
             ? BackgroundPlaybackState.playing
             : BackgroundPlaybackState.paused);
+    final requestAudioFocus =
+        !AppSettingsController.instance.allowConcurrentAudio.value;
     if (service.isRunning) {
       await service.update(
         state: state,
         title: playbackTitle,
         subtitle: playbackSubtitle,
+        requestAudioFocus: requestAudioFocus,
       );
     } else {
       await service.start(
         state: state,
         title: playbackTitle,
         subtitle: playbackSubtitle,
+        requestAudioFocus: requestAudioFocus,
       );
     }
   }
@@ -2818,6 +2906,9 @@ class PlayerController extends BaseController
       return;
     }
     if (event.type == 'audioFocus') {
+      // 开启“与其他应用同时播放”后不再让出焦点：即使收到丢失回调也继续播放。
+      final allowConcurrent =
+          AppSettingsController.instance.allowConcurrentAudio.value;
       switch (event.focusState) {
         case 'gain':
           await _applyResolvedPlayerVolume();
@@ -2827,6 +2918,9 @@ class PlayerController extends BaseController
           break;
         case 'loss':
         case 'loss_transient':
+          if (allowConcurrent) {
+            break;
+          }
           await player.pause();
           break;
         case 'can_duck':

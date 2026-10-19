@@ -7,6 +7,7 @@ import 'package:get/get.dart';
 import 'package:path/path.dart' as p;
 import 'package:simple_live_app/app/app_style.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
+import 'package:simple_live_app/services/background_playback_service.dart';
 import 'package:simple_live_app/services/live_subtitle_service.dart';
 import 'package:simple_live_app/routes/route_path.dart';
 import 'package:simple_live_app/widgets/settings/settings_action.dart';
@@ -107,6 +108,24 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     },
                   ),
                 ),
+                if (Platform.isAndroid) AppStyle.divider,
+                if (Platform.isAndroid)
+                  Obx(
+                    () => SettingsMenu<String>(
+                      title: "全屏方向",
+                      subtitle:
+                          "平板锁定竖屏时选“强制横屏”；Android 16 大屏设备会忽略应用的强制方向请求",
+                      value: controller.fullscreenOrientation.value,
+                      valueMap: const {
+                        "smart": "智能（推荐）",
+                        "landscape": "强制横屏",
+                        "system": "跟随系统",
+                      },
+                      onChanged: (e) {
+                        controller.setFullscreenOrientation(e);
+                      },
+                    ),
+                  ),
                 AppStyle.divider,
                 Obx(
                   () => SettingsSwitch(
@@ -140,6 +159,21 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     },
                   ),
                 ),
+                if (Platform.isAndroid) AppStyle.divider,
+                if (Platform.isAndroid)
+                  Obx(
+                    () => SettingsSwitch(
+                      title: "与其他应用同时播放",
+                      subtitle:
+                          "开启后不再申请音频焦点，可能与其它应用同时出声；来电、蓝牙/车机等场景可能异常",
+                      value: controller.allowConcurrentAudio.value,
+                      onChanged: (e) {
+                        controller.setAllowConcurrentAudio(e);
+                        BackgroundPlaybackService.instance
+                            .applyAudioFocusPreference(requestAudioFocus: !e);
+                      },
+                    ),
+                  ),
                 if (Platform.isAndroid || Platform.isIOS) AppStyle.divider,
                 if (Platform.isAndroid || Platform.isIOS)
                   SettingsAction(

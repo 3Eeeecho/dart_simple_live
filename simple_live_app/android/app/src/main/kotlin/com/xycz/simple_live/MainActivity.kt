@@ -66,6 +66,10 @@ class MainActivity : FlutterActivity() {
                             )
                             putExtra("title", call.argument<String>("title") ?: "")
                             putExtra("subtitle", call.argument<String>("subtitle") ?: "")
+                            putExtra(
+                                "requestAudioFocus",
+                                call.argument<Boolean>("requestAudioFocus") ?: true,
+                            )
                         }
                         var launched = true
                         try {
