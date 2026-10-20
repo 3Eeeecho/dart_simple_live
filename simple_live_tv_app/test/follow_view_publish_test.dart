@@ -163,4 +163,81 @@ void main() {
       );
     });
   });
+
+  group('shouldPublishView', () {
+    test('skips publishing while a refresh is running', () {
+      expect(shouldPublishView(force: false, updating: true), isFalse);
+    });
+
+    test('publishes when idle', () {
+      expect(shouldPublishView(force: false, updating: false), isTrue);
+    });
+
+    test('force publishes even while refreshing', () {
+      expect(shouldPublishView(force: true, updating: true), isTrue);
+    });
+  });
+
+  group('buildHomeList', () {
+    test('keeps the head of the display list within the limit', () {
+      final display = List.generate(5, (i) => makeUser('u$i'));
+      final home = buildHomeList(display, limit: 3);
+      expect(home.map((e) => e.id).toList(), ['u0', 'u1', 'u2']);
+    });
+
+    test('returns the whole list when shorter than the limit', () {
+      final display = List.generate(2, (i) => makeUser('u$i'));
+      expect(buildHomeList(display, limit: 60).length, 2);
+    });
+
+    test('is independent from pagination slices', () {
+      final display = List.generate(10, (i) => makeUser('u$i'));
+      final home = buildHomeList(display, limit: 4);
+      // 关注页翻到第 3 页时切片变化，首页仍取头部
+      final pageThree = display.sublist(6, 9);
+      expect(home.map((e) => e.id).toList(), ['u0', 'u1', 'u2', 'u3']);
+      expect(pageThree.map((e) => e.id).toList(), ['u6', 'u7', 'u8']);
+    });
+  });
+
+  group('shouldPersistNow', () {
+    final now = DateTime(2026, 5, 1, 12, 0, 0);
+    const interval = Duration(seconds: 2);
+
+    test('throttles writes inside the interval', () {
+      expect(
+        shouldPersistNow(
+          now: now,
+          last: now.subtract(const Duration(milliseconds: 500)),
+          interval: interval,
+          force: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('allows a write once the interval passed', () {
+      expect(
+        shouldPersistNow(
+          now: now,
+          last: now.subtract(const Duration(seconds: 2)),
+          interval: interval,
+          force: false,
+        ),
+        isTrue,
+      );
+    });
+
+    test('force always writes', () {
+      expect(
+        shouldPersistNow(
+          now: now,
+          last: now,
+          interval: interval,
+          force: true,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dio/dio.dart';
 
 import 'core_error.dart';
+import 'core_log.dart';
 import 'platform_identity.dart';
 
 enum DouyuQrStatus { waiting, scanned, expired, authorized }
@@ -206,54 +207,153 @@ class DouyuPassport {
     }
   }
 
-  /// 用续期凭据换取新的播放 Cookie（safeAuth 接口，返回 Set-Cookie 拼接）。
-  /// 凭据无效或平台撤销授权时抛 CoreError。
+  static const String _safeAuthUrl =
+      'https://passport.douyu.com/lapi/passport/iframe/safeAuth';
+
+  /// safeAuth 换票链的最大跳数
+  static const int _renewMaxHops = 6;
+
+  /// 用续期凭据换取新的播放 Cookie。
+  ///
+  /// safeAuth 不是"一次请求就下发 Cookie"：第一跳返回 302，Location 指向
+  /// `www.douyu.com/api/passport/login?...&loginType=safeAuth` 的一次性登录地址，
+  /// **真正的 acf_* 全套登录 Cookie 在第二跳（www 域）下发**，safeAuth 本身不重发 LTP0。
+  /// 因此这里手动逐跳跟随 302，并把每一跳的 Set-Cookie 累积起来（只跟 302，不跟 200 页面）。
+  ///
+  /// [dio] 仅供单测注入；为空时内部自建（不经过 App 的日志拦截器）。
   static Future<String> refreshPlayCookie({
     required String dyDid,
     required String ltp0,
+    Dio? dio,
   }) async {
     if (dyDid.isEmpty || ltp0.isEmpty) {
       throw CoreError("斗鱼续期凭据缺失，请重新扫码登录");
     }
-    final dio = Dio(
-      BaseOptions(
-        connectTimeout: const Duration(seconds: 15),
-        sendTimeout: const Duration(seconds: 15),
-        receiveTimeout: const Duration(seconds: 15),
-        followRedirects: false,
-        validateStatus: (status) => status != null && status < 400,
-      ),
-    );
+    final ownsClient = dio == null;
+    final client = dio ??
+        Dio(
+          BaseOptions(
+            connectTimeout: const Duration(seconds: 15),
+            sendTimeout: const Duration(seconds: 15),
+            receiveTimeout: const Duration(seconds: 15),
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 400,
+          ),
+        );
     try {
       final now = DateTime.now().millisecondsSinceEpoch.toString();
-      final response = await dio.get<String>(
-        'https://passport.douyu.com/lapi/passport/iframe/safeAuth',
-        queryParameters: {
-          'client_id': '1',
-          't': now,
-          '_': now,
-          'callback': 'axiosJsonpCallback',
-        },
-        options: Options(
-          responseType: ResponseType.plain,
-          headers: {
-            'Referer': 'https://www.douyu.com/',
-            'Origin': 'https://passport.douyu.com',
-            'User-Agent': _playUserAgent,
-            'Cookie': 'dy_did=$dyDid;LTP0=$ltp0',
-          },
-        ),
-      );
-      final cookie = cookiesFromSetCookie(response.headers['set-cookie']);
-      if (cookie.isEmpty || isCookieExpired(cookie)) {
+      var uri = Uri.parse(_safeAuthUrl).replace(queryParameters: {
+        'client_id': '1',
+        't': now,
+        '_': now,
+        'callback': 'axiosJsonpCallback',
+      });
+      final fields = <String, String>{};
+      var hops = 0;
+      var finalStatus = 0;
+      while (hops < _renewMaxHops) {
+        hops++;
+        final response = await client.get<String>(
+          uri.toString(),
+          options: Options(
+            responseType: ResponseType.plain,
+            // 手动跟随时序：302 必须作为正常响应返回，交给下面的 location 逻辑处理
+            followRedirects: false,
+            validateStatus: (status) => status != null && status < 400,
+            headers: {
+              'User-Agent': _playUserAgent,
+              'Referer': 'https://www.douyu.com/',
+              'Origin': 'https://www.douyu.com',
+              'Accept': '*/*',
+              'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+              // 每一跳都带上原始凭据：换票链后段靠 LTP0 认人
+              'Cookie': 'dy_did=$dyDid; LTP0=$ltp0',
+            },
+          ),
+        );
+        _collectSetCookieFields(response.headers['set-cookie'], fields);
+        finalStatus = response.statusCode ?? 0;
+        if (finalStatus >= 300 && finalStatus < 400) {
+          final location = response.headers.value('location');
+          if (location == null || location.isEmpty) {
+            break;
+          }
+          uri = _resolveRenewRedirect(uri, location);
+          continue;
+        }
+        break;
+      }
+      final cookie = _joinCookieFields(fields);
+      if (!_isRenewedCookieUsable(cookie)) {
+        CoreLog.d(
+          "斗鱼 safeAuth 未换到可用 Cookie：hops=$hops status=$finalStatus "
+          "fields=${fields.keys.join(',')}",
+        );
         throw CoreError("斗鱼续期失败，请重新扫码登录");
       }
       return cookie;
     } on DioException catch (e) {
       throw CoreError("斗鱼续期请求失败：${e.message ?? '网络异常'}");
     } finally {
-      dio.close(force: true);
+      if (ownsClient) {
+        client.close(force: true);
+      }
     }
+  }
+
+  /// 累积每一跳的 Set-Cookie：空值 / Max-Age=0 视为删除，其余按名字大小写不敏感覆盖
+  static void _collectSetCookieFields(
+    List<String>? rawList,
+    Map<String, String> fields,
+  ) {
+    for (final raw in rawList ?? const <String>[]) {
+      Cookie cookie;
+      try {
+        cookie = Cookie.fromSetCookieValue(raw);
+      } catch (_) {
+        continue;
+      }
+      final lowerName = cookie.name.toLowerCase();
+      fields.removeWhere((key, _) => key.toLowerCase() == lowerName);
+      final cleared = cookie.maxAge == 0 ||
+          (cookie.expires != null &&
+              !cookie.expires!.isAfter(DateTime.now()));
+      if (cleared || cookie.value.isEmpty) {
+        continue;
+      }
+      fields[cookie.name] = cookie.value;
+    }
+  }
+
+  static String _joinCookieFields(Map<String, String> fields) {
+    return fields.entries.map((e) => '${e.key}=${e.value}').join('; ');
+  }
+
+  /// 换票结果是否可用：优先用 acf_jwt_token 的 exp 判定；
+  /// 换票链也可能只下发 acf_* 基础登录字段，此时以 acf_uid + acf_auth 齐全为准。
+  static bool _isRenewedCookieUsable(String cookie) {
+    if (cookie.isEmpty) {
+      return false;
+    }
+    if (cookieValue(cookie, 'acf_jwt_token').isNotEmpty) {
+      return !isCookieExpired(cookie);
+    }
+    return cookieValue(cookie, 'acf_uid').isNotEmpty &&
+        cookieValue(cookie, 'acf_auth').isNotEmpty;
+  }
+
+  /// 解析（可能为 `//host` 或相对形式的）Location，并限制在斗鱼域名内
+  static Uri _resolveRenewRedirect(Uri base, String location) {
+    var raw = location.trim();
+    if (raw.startsWith('//')) {
+      raw = '${base.scheme}:$raw';
+    }
+    final next = base.resolve(raw);
+    if (next.scheme != 'https' ||
+        !(next.host == 'douyu.com' || next.host.endsWith('.douyu.com'))) {
+      throw CoreError("斗鱼登录地址无效");
+    }
+    return next;
   }
 
   /// 从 Set-Cookie 响应头列表提取"名=值"播放 Cookie 串

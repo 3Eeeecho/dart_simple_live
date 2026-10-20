@@ -735,9 +735,13 @@ void showPlayerSettings(LiveRoomController controller) {
 }
 
 void showFollowUser(LiveRoomController controller) {
+  // 打开弹层时固化快照：刷新过程中列表不再整体重建，
+  // 焦点不会因条目位移/重建而丢失。
+  final livingItems = FollowUserService.instance.livingList.toList();
+  final focusNodes = <String, AppFocusNode>{};
   var currentIndex = 0;
   if (controller.followed.value) {
-    currentIndex = FollowUserService.instance.livingList.indexWhere(
+    currentIndex = livingItems.indexWhere(
       (e) =>
           e.id ==
           "${controller.rxSite.value.id}_${controller.detail.value?.roomId}",
@@ -773,8 +777,7 @@ void showFollowUser(LiveRoomController controller) {
               focusNode: AppFocusNode(),
               iconData: Icons.arrow_back,
               text: "返回",
-              autofocus: currentIndex == 0 &&
-                  FollowUserService.instance.livingList.isEmpty,
+              autofocus: currentIndex == 0 && livingItems.isEmpty,
               onTap: () {
                 // Utils.hideRightDialog();
                 Get.back();
@@ -795,40 +798,38 @@ void showFollowUser(LiveRoomController controller) {
         Expanded(
           child: Stack(
             children: [
-              Obx(
-                () => ListView.separated(
-                  controller: followScrollController,
-                  itemCount: FollowUserService.instance.livingList.length,
-                  separatorBuilder: (context, index) => AppStyle.vGap32,
-                  padding: AppStyle.edgeInsetsA40.copyWith(
-                    left: 48.w,
-                    right: 48.w,
-                  ),
-                  itemBuilder: (_, i) {
-                    var item = FollowUserService.instance.livingList[i];
-                    var site = Sites.allSites[item.siteId]!;
-                    return AnchorCard(
-                      face: item.face,
-                      name: item.userName,
-                      siteId: item.siteId,
-                      liveStatus: item.liveStatus.value,
-                      roomId: item.roomId,
-                      autofocus: i == currentIndex,
-                      focusNode: i == currentIndex ? currentFocusNode : null,
-                      onTap: () {
-                        controller.resetRoom(site, item.roomId);
-                        Get.back();
-                      },
-                    );
-                  },
+              ListView.separated(
+                controller: followScrollController,
+                itemCount: livingItems.length,
+                separatorBuilder: (context, index) => AppStyle.vGap32,
+                padding: AppStyle.edgeInsetsA40.copyWith(
+                  left: 48.w,
+                  right: 48.w,
                 ),
+                itemBuilder: (_, i) {
+                  var item = livingItems[i];
+                  var site = Sites.allSites[item.siteId]!;
+                  final isCurrent = i == currentIndex;
+                  return AnchorCard(
+                    key: ValueKey(item.id),
+                    face: item.face,
+                    name: item.userName,
+                    siteId: item.siteId,
+                    liveStatus: item.liveStatus.value,
+                    roomId: item.roomId,
+                    autofocus: isCurrent,
+                    focusNode: isCurrent
+                        ? currentFocusNode
+                        : focusNodes.putIfAbsent(item.id, AppFocusNode.new),
+                    onTap: () {
+                      controller.resetRoom(site, item.roomId);
+                      Get.back();
+                    },
+                  );
+                },
               ),
-              Obx(
-                () => Visibility(
-                  visible: FollowUserService.instance.list.isEmpty,
-                  child: const AppEmptyWidget(text: "关注列表为空，快去关注一些主播吧"),
-                ),
-              ),
+              if (livingItems.isEmpty)
+                const AppEmptyWidget(text: "关注列表为空，快去关注一些主播吧"),
             ],
           ),
         ),
@@ -837,6 +838,9 @@ void showFollowUser(LiveRoomController controller) {
   ).then((value) {
     followScrollController.dispose();
     currentFocusNode.dispose();
+    for (final node in focusNodes.values) {
+      node.dispose();
+    }
     // 还原焦点
     controller.focusNode.requestFocus();
   });

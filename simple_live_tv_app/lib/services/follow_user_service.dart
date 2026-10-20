@@ -23,6 +23,9 @@ class FollowUserService extends BasePageController<FollowUser> {
   static const Duration updateStatusCooldown = Duration(seconds: 10);
   static const Duration refreshProgressCompletionHold = Duration(seconds: 2);
   static const int paginationThreshold = 400;
+
+  /// 超大关注量阈值：进度条、落盘等高频动作需要降频
+  static const int hugeRefreshTaskThreshold = 500;
   static const String _refreshTaskStateStorageKey =
       LocalStorageService.kFollowRefreshTaskState;
   static const String _refreshTaskTargetsStorageKey =
@@ -43,6 +46,13 @@ class FollowUserService extends BasePageController<FollowUser> {
   /// 发布节流窗口：刷新时避免每条状态都重建整张网格
   static const Duration publishInterval = Duration(milliseconds: 250);
   DateTime? _lastPublishAt;
+
+  /// 刷新任务落盘节流窗口：大关注量时逐条全量写盘会拖垮主线程
+  static const Duration persistInterval = Duration(seconds: 2);
+  DateTime? _lastPersistAt;
+
+  /// 首页网格只展示前若干条，与关注页分页状态解耦
+  static const int homeListLimit = 60;
 
   /// 自定义标签列表（Hive 实体，与手机端 FollowUserTag 对齐）
   RxList<FollowUserTag> followTagList = RxList<FollowUserTag>();
@@ -281,8 +291,13 @@ class FollowUserService extends BasePageController<FollowUser> {
     return displayList.sublist(start, end);
   }
 
+  /// 重建展示列表。刷新进行中只刷新在播集合（懒人模式切台依赖它），
+  /// 不改动网格顺序，避免条目位移抢走遥控器焦点。
   void sortList() {
-    allList.assignAll(_sortFollowUsers(allList));
+    final refreshing = updating.value;
+    if (!refreshing) {
+      allList.assignAll(_sortFollowUsers(allList));
+    }
     final displayList = _buildDisplaySource();
     paginationEnabled.value = displayList.length > paginationThreshold;
     late final List<FollowUser> pageItems;
@@ -309,14 +324,19 @@ class FollowUserService extends BasePageController<FollowUser> {
     currentPage = currentDisplayPage.value;
     canLoadMore.value = false;
     updateLivingList();
-    homeList.assignAll(pageItems);
+    // 首页网格与关注页分页解耦：固定取展示列表头部，翻页不改变首页内容
+    homeList.assignAll(buildHomeList(displayList, limit: homeListLimit));
     dataRevision.value++;
   }
 
   /// 统一的视图发布入口。
-  /// 刷新过程中按 publishInterval 节流，让首页/关注页跟着进度更新；
+  /// 刷新进行中不发布：条目位置保持稳定，卡片状态由各自 Obx 更新，
+  /// 否则每次重排都会打断焦点、并让懒人模式读到中间态顺序。
   /// 刷新结束、标签/搜索变化、本地重载时用 force: true 立即发布。
   void publishView({bool force = false}) {
+    if (!shouldPublishView(force: force, updating: updating.value)) {
+      return;
+    }
     final now = DateTime.now();
     if (!shouldPublishNow(
       now: now,
@@ -1061,6 +1081,7 @@ class FollowUserService extends BasePageController<FollowUser> {
       final orderedTargets = _deprioritizeCurrentRoom(
         _interleaveByPlatform(followList),
       );
+      final isHugeTask = followList.length >= hugeRefreshTaskThreshold;
       final filteredTargets = _applyDouyinRefreshPolicy(
         orderedTargets,
         scope: resolvedScope,
@@ -1191,7 +1212,14 @@ class FollowUserService extends BasePageController<FollowUser> {
             deferredCount =
                 filteredTargets.deferredTargets.length + pendingKeys.length;
           }
-          if (resolvedScope.includeAllNormals) {
+          if (resolvedScope.includeAllNormals &&
+              shouldPersistNow(
+                now: DateTime.now(),
+                last: _lastPersistAt,
+                interval: persistInterval,
+                force: pausedForResume,
+              )) {
+            _lastPersistAt = DateTime.now();
             unawaited(
               _persistRefreshTask(
                 scope: resolvedScope,
@@ -1204,9 +1232,11 @@ class FollowUserService extends BasePageController<FollowUser> {
               ),
             );
           }
-          updateProgress(active: true, done: false);
-          // 节流发布：首页/关注页跟随刷新进度更新（内部 250ms 丢弃）
-          publishView();
+          // 进度条对超大任务降频刷新，避免每完成一项就整页重建
+          if (!isHugeTask || completed % 20 == 0 || pendingKeys.isEmpty) {
+            updateProgress(active: true, done: false);
+          }
+          // 刷新期间不发布视图：条目位置保持稳定，卡片状态由各自 Obx 更新
         }
       }
 
@@ -1818,6 +1848,40 @@ bool shouldPublishNow({
     return true;
   }
   return now.difference(last) >= interval;
+}
+
+/// 刷新任务落盘节流判定（纯函数，便于单测）。
+/// 大关注量时每条状态都全量写盘会造成 IO 风暴，故按 [interval] 节流。
+bool shouldPersistNow({
+  required DateTime now,
+  required DateTime? last,
+  required Duration interval,
+  required bool force,
+}) {
+  return shouldPublishNow(
+    now: now,
+    last: last,
+    interval: interval,
+    force: force,
+  );
+}
+
+/// 是否允许发布视图（纯函数，便于单测）：
+/// 刷新进行中且非强制时保持网格静止，避免焦点被打断。
+bool shouldPublishView({required bool force, required bool updating}) {
+  return force || !updating;
+}
+
+/// 首页网格数据（纯函数，便于单测）：取展示列表头部 [limit] 条，
+/// 与关注页分页状态无关，翻页不会影响首页。
+List<FollowUser> buildHomeList(List<FollowUser> displayList, {int limit = 60}) {
+  if (limit <= 0) {
+    return const [];
+  }
+  if (displayList.length <= limit) {
+    return List<FollowUser>.of(displayList);
+  }
+  return displayList.sublist(0, limit);
 }
 
 /// 关注卡片排序：特别关注 > 直播中 > 关注时间倒序。

@@ -52,6 +52,7 @@ build_android_apk.bat
 build_tv_apk.bat
 deploy_windows.bat
 third_party/mpv-dev-x86_64-20260828-git-182fa6ca49.7z
+third_party/ANGLE.7z
 
 # =============================================================================
 # Logs & traces

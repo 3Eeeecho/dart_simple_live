@@ -17,8 +17,32 @@ import 'package:simple_live_tv_app/widgets/button/home_big_button.dart';
 import 'package:simple_live_tv_app/widgets/net_image.dart';
 import 'package:simple_live_tv_app/widgets/status/app_empty_widget.dart';
 
-class HomePage extends GetView<HomeController> {
+class HomePage extends StatefulWidget {
   const HomePage({super.key});
+
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  final HomeController controller = Get.find<HomeController>();
+
+  /// 按关注 id 复用焦点节点：网格重排时焦点跟着卡片走，
+  /// 不会因为重建换节点而回弹到顶部按钮。
+  final Map<String, AppFocusNode> _cardFocusNodes = <String, AppFocusNode>{};
+
+  @override
+  void dispose() {
+    for (final node in _cardFocusNodes.values) {
+      node.dispose();
+    }
+    _cardFocusNodes.clear();
+    super.dispose();
+  }
+
+  AppFocusNode _focusNodeFor(String key) {
+    return _cardFocusNodes.putIfAbsent(key, AppFocusNode.new);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -75,7 +99,6 @@ class HomePage extends GetView<HomeController> {
                       AppStyle.hGap48,
                       Expanded(
                         child: HomeBigButton(
-                          autofocus: true,
                           focusNode: AppFocusNode(),
                           text: "直播类目",
                           iconData: Remix.apps_line,
@@ -85,7 +108,6 @@ class HomePage extends GetView<HomeController> {
                       AppStyle.hGap48,
                       Expanded(
                         child: HomeBigButton(
-                          autofocus: true,
                           focusNode: AppFocusNode(),
                           text: "搜索直播",
                           iconData: Remix.search_2_line,
@@ -213,11 +235,13 @@ class HomePage extends GetView<HomeController> {
                         final item = items[i];
                         return Obx(
                           () => AnchorCard(
+                            key: ValueKey(item.id),
                             face: item.face,
                             name: item.userName,
                             siteId: item.siteId,
                             liveStatus: item.liveStatus.value,
                             roomId: item.roomId,
+                            focusNode: _focusNodeFor(item.id),
                           ),
                         );
                       },

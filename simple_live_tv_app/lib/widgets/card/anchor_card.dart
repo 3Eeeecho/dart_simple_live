@@ -14,7 +14,7 @@ enum AnchorCardDisplayStyle {
   card,
 }
 
-class AnchorCard extends StatelessWidget {
+class AnchorCard extends StatefulWidget {
   final String siteId;
   final String face;
   final String name;
@@ -47,17 +47,45 @@ class AnchorCard extends StatelessWidget {
   });
 
   @override
+  State<AnchorCard> createState() => _AnchorCardState();
+}
+
+class _AnchorCardState extends State<AnchorCard> {
+  /// 未外部传入时的兜底焦点节点：必须随 State 存活，
+  /// 否则每次重建都会换节点，导致焦点丢失并在页面间回弹。
+  late final AppFocusNode _fallbackFocusNode = AppFocusNode();
+
+  String get siteId => widget.siteId;
+  String get face => widget.face;
+  String get name => widget.name;
+  String get roomId => widget.roomId;
+  String get roomTitle => widget.roomTitle;
+  String get roomCover => widget.roomCover;
+  int get liveStatus => widget.liveStatus;
+  bool get playing => widget.playing;
+  bool get showLiveCover => widget.showLiveCover;
+
+  @override
+  void dispose() {
+    _fallbackFocusNode.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final site = Sites.allSites[siteId]!;
-    final focusNode = this.focusNode ?? AppFocusNode();
+    final site = Sites.allSites[widget.siteId]!;
+    final focusNode = widget.focusNode ?? _fallbackFocusNode;
     return Obx(
       () => HighlightWidget(
-        onTap: onTap ??
+        onTap: widget.onTap ??
             () {
-              AppNavigator.toLiveRoomDetail(site: site, roomId: roomId);
+              AppNavigator.toLiveRoomDetail(
+                site: site,
+                roomId: widget.roomId,
+              );
             },
         focusNode: focusNode,
-        autofocus: autofocus,
+        autofocus: widget.autofocus,
         borderRadius: AppStyle.radius16,
         color: Colors.white10,
         child: _buildCard(context, site, focusNode.isFoucsed.value),
@@ -66,7 +94,7 @@ class AnchorCard extends StatelessWidget {
   }
 
   Widget _buildCard(BuildContext context, Site site, bool focused) {
-    switch (displayStyle) {
+    switch (widget.displayStyle) {
       case AnchorCardDisplayStyle.compact:
         return _buildListCard(context, site, focused, compact: true);
       case AnchorCardDisplayStyle.card:
