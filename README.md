@@ -35,13 +35,9 @@ Simple Live 会继续保持开源和免费使用。赞助费用主要用于同�
 
 ## 用户群
 
-### QQ群
+### QQ群+微信小号
 
-<img src="./images/README/image-20261020234152162.png" alt="image-20261020234152162" style="zoom: 50%;" />
-
-### 微信群请加我小号
-
-<img src="./images/README/image-20261020234208921.png" alt="image-20261020234208921" style="zoom:50%;" />
+<img src="./images/README/image-20261020234152162.png" alt="image-20261020234152162" style="zoom: 33%;" /><img src="./images/README/image-20261020234208921.png" alt="image-20261020234208921" style="zoom: 33%;" />
 
 ## Release 资产
 
