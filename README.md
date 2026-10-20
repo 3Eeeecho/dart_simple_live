@@ -37,21 +37,21 @@ Simple Live 会继续保持开源和免费使用。赞助费用主要用于同�
 
 ### QQ群+微信小号
 
-<table>
+<table width="100%">
   <tr>
-    <!-- 第一张图：QQ群 -->
-    <td style="padding-right: 16px;">
+    <!-- 左列：QQ群，占50%宽度，图片居中 -->
+    <td width="40%" style="text-align: center; vertical-align: middle; padding: 0 10px;">
       <img 
         src="./images/README/image-20261020234152162.png" 
-        height="480" 
+        height="600" 
         alt="SimpleLive用户群"
       >
     </td>
-    <!-- 第二张图：微信 -->
-    <td>
+    <!-- 右列：微信，占50%宽度，图片居中 -->
+    <td width="50%" style="text-align: center; vertical-align: middle; padding: 0 10px;">
       <img 
         src="./images/README/image-20261020234208921.png" 
-        height="480" 
+        height="600" 
         alt="微信小号"
       >
     </td>
