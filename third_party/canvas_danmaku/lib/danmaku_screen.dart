@@ -74,8 +74,10 @@ class _DanmakuScreenState extends State<DanmakuScreen>
 
   void _updatePaintFrameInterval() {
     final maxFps = _option.maxFps;
+    // 向下取整（60fps → 16ms）：60Hz 屏 vsync 间隔约 16.67ms，
+    // 若取 17ms 会隔帧才通过，反而把 60Hz 设备降到 30fps
     _paintFrameIntervalMs =
-        (maxFps == null || maxFps <= 0) ? 0 : (1000 / maxFps).ceil();
+        (maxFps == null || maxFps <= 0) ? 0 : (1000 / maxFps).floor();
   }
 
   void _onAnimationTick() {
