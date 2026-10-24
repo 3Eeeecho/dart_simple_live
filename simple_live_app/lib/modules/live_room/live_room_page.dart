@@ -374,6 +374,9 @@ class LiveRoomPage extends GetView<LiveRoomController> {
                     duration: settings.danmuSpeed.value.toInt(),
                     opacity: opacity,
                     fontWeight: settings.danmuFontWeight.value,
+                    showStroke: settings.effectiveDanmuStroke,
+                    strokeWidth: settings.danmuStrokeWidth.value,
+                    maxFps: settings.effectiveDanmuMaxFps,
                     hideTop: true, // PIP模式只显示滚动弹幕
                     hideBottom: true,
                     hideScroll: false,
