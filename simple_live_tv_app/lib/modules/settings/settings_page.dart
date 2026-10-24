@@ -9,6 +9,7 @@ import 'package:simple_live_tv_app/app/app_focus_node.dart';
 import 'package:simple_live_tv_app/app/app_style.dart';
 import 'package:simple_live_tv_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_tv_app/app/utils.dart';
+import 'package:simple_live_tv_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_tv_app/modules/settings/settings_controller.dart';
 import 'package:simple_live_tv_app/modules/settings/follow_update_interval_options.dart';
 import 'package:simple_live_tv_app/services/bilibili_account_service.dart';
@@ -604,6 +605,15 @@ class SettingsPage extends GetView<SettingsController> {
             value: AppSettingsController.instance.danmuStrokeWidth.value,
             onChanged: (e) {
               AppSettingsController.instance.setDanmuStrokeWidth(e);
+              // 房间内的弹幕视图是缓存构造的，改宽度后同步推送给在播房间
+              if (Get.isRegistered<LiveRoomController>()) {
+                final liveController = Get.find<LiveRoomController>();
+                liveController.updateDanmuOption(
+                  liveController.danmakuController?.option.copyWith(
+                    strokeWidth: (e as double).w,
+                  ),
+                );
+              }
             },
           ),
         ),

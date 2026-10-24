@@ -2816,6 +2816,15 @@ class LiveRoomController extends PlayerController
               children: [
                 Obx(
                   () => SettingsSwitch(
+                    title: "省电模式",
+                    subtitle: "降低发热：简化视频缩放、弹幕限 60 帧、关描边；进入下一个直播间后生效",
+                    value: settings.powerSaveMode.value,
+                    onChanged: settings.setPowerSaveMode,
+                  ),
+                ),
+                AppStyle.divider,
+                Obx(
+                  () => SettingsSwitch(
                     title: "硬件解码",
                     subtitle: "播放失败可尝试关闭此选项",
                     value: settings.hardwareDecode.value,

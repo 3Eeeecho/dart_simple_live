@@ -306,6 +306,7 @@ Widget buildDanmuView(VideoState videoState, LiveRoomController controller) {
       emojiScale: 1.4,
       duration: AppSettingsController.instance.danmuSpeed.value.toInt(),
       opacity: AppSettingsController.instance.danmuOpacity.value,
+      strokeWidth: AppSettingsController.instance.danmuStrokeWidth.value.w,
     ),
   );
   return Positioned.fill(

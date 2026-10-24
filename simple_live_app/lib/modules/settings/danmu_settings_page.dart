@@ -330,6 +330,22 @@ class DanmuSettingsView extends GetView<AppSettingsController> {
               ),
               AppStyle.divider,
               Obx(
+                () => SettingsNumber(
+                  title: "描边宽度",
+                  value: (controller.danmuStrokeWidth.value * 2).round(),
+                  min: 2,
+                  max: 8,
+                  step: 1,
+                  displayValue:
+                      "${(controller.danmuStrokeWidth.value * 2).round() / 2}",
+                  onChanged: (e) {
+                    controller.setDanmuStrokeWidth(e / 2.0);
+                    updatePreviewOption();
+                  },
+                ),
+              ),
+              AppStyle.divider,
+              Obx(
                 () => SettingsMenu<int>(
                   title: "帧率上限",
                   subtitle: controller.powerSaveMode.value
