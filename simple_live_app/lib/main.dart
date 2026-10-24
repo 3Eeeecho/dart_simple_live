@@ -408,10 +408,11 @@ class _DesktopWindowLifecycle with WindowListener {
       "关闭播放器",
       () async {
         if (Get.isRegistered<LiveRoomController>()) {
-          await Get.find<LiveRoomController>().closePlayerResources();
+          await Get.find<LiveRoomController>()
+              .closePlayerResources(exitingApp: true);
         }
       },
-      timeout: const Duration(milliseconds: 900),
+      timeout: const Duration(milliseconds: 4000),
     );
     _closeStepSync("关闭同步服务", () {
       if (Get.isRegistered<SyncService>()) {

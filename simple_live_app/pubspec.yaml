@@ -98,6 +98,9 @@ dependency_overrides:
     path: ../third_party/canvas_danmaku
   media_kit_libs_windows_video:
     path: ../third_party/media_kit_libs_windows_video
+  # Synchronous VideoOutput disposal on Windows to fix fast-fail on exit.
+  media_kit_video:
+    path: ../third_party/media_kit_video
 
 flutter_launcher_icons:
   android: true

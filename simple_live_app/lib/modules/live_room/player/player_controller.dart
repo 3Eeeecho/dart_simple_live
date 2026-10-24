@@ -19,6 +19,7 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/custom_throttle.dart';
 import 'package:simple_live_app/app/log.dart';
+import 'package:simple_live_app/app/mpv_exit_helper.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/services/background_playback_service.dart';
 import 'package:simple_live_app/services/ios_video_output_size.dart';
@@ -3020,7 +3021,7 @@ class PlayerController extends BaseController
     );
   }
 
-  Future<void> closePlayerResources() async {
+  Future<void> closePlayerResources({bool exitingApp = false}) async {
     if (_playerClosing) {
       return;
     }
@@ -3029,6 +3030,13 @@ class PlayerController extends BaseController
     clearTransientPlayerOverlays();
     await stopBackgroundPlaybackService();
     await waitForPlaybackOpen();
+    // Windows 退出前先保存 mpv handle，dispose 后用于让核心立即停止。
+    int? mpvHandle;
+    if (exitingApp && Platform.isWindows) {
+      try {
+        mpvHandle = await player.handle;
+      } catch (_) {}
+    }
     await player.stop();
     if (smallWindowState.value) {
       await exitSmallWindow();
@@ -3037,6 +3045,14 @@ class PlayerController extends BaseController
     disposeDanmakuController();
     await resetSystem();
     await player.dispose();
+    // 渲染上下文已同步释放，让 mpv 核心线程在进程退出/DLL 卸载前结束。
+    if (exitingApp && Platform.isWindows && mpvHandle != null) {
+      try {
+        await MpvExitHelper.shutdown(mpvHandle);
+      } catch (e) {
+        Log.logPrint("mpv 核心退出失败: $e");
+      }
+    }
   }
 
   @override
