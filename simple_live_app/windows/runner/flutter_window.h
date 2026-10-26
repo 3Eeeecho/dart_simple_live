@@ -7,6 +7,7 @@
 #include <flutter/encodable_value.h>
 
 #include <memory>
+#include <set>
 #include <string>
 
 #include "win32_window.h"
@@ -17,6 +18,11 @@ class FlutterWindow : public Win32Window {
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
+
+  // Called by the message loop before TranslateMessage. Returns true when the
+  // message was consumed as a desktop shortcut and must not be translated or
+  // dispatched (so neither the IME nor Flutter sees it).
+  bool PreTranslateShortcutMessage(const MSG& msg);
 
  protected:
   // Win32Window:
@@ -30,7 +36,6 @@ class FlutterWindow : public Win32Window {
   void ApplyFullscreenChrome();
   void RestoreWindowChrome();
   void SetImeForShortcutCapture(bool captureEnabled);
-  bool HandleShortcutKeyDown(WPARAM wparam, LPARAM lparam);
   std::string ShortcutKeyForWindowsKey(WPARAM wparam, LPARAM lparam);
   bool SendShortcutEvent(const std::string& key);
 
@@ -48,8 +53,12 @@ class FlutterWindow : public Win32Window {
   LONG_PTR windowed_ex_style_ = 0;
   bool fullscreen_chrome_applied_ = false;
   bool shortcut_capture_enabled_ = false;
-  HIMC default_imc_ = nullptr;
-  bool ime_disabled_ = false;
+  // The Flutter view child window that owns keyboard focus and whose IME
+  // association is detached while shortcuts are captured.
+  HWND ime_detached_window_ = nullptr;
+  // Scan codes (with the extended-key bit) whose key-down was consumed, so the
+  // matching key-up is consumed too and Flutter never sees an unpaired event.
+  std::set<UINT> swallowed_scan_codes_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

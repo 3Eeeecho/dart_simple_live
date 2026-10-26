@@ -15,6 +15,9 @@ struct _MyApplication {
   char** dart_entrypoint_arguments;
   FlMethodChannel* shortcut_channel;
   gboolean shortcut_capture_enabled;
+  // Hardware keycodes whose key-press was consumed, so the matching release
+  // is consumed too and Flutter never sees an unpaired event.
+  gboolean swallowed_keycodes[256];
 };
 
 G_DEFINE_TYPE(MyApplication, my_application, GTK_TYPE_APPLICATION)
@@ -47,6 +50,8 @@ static const gchar* shortcut_key_for_event(GdkEventKey* event) {
       return "arrowUp";
     case 116:
       return "arrowDown";
+    case 65:
+      return "keySpace";
     default:
       break;
   }
@@ -89,6 +94,8 @@ static const gchar* shortcut_key_for_event(GdkEventKey* event) {
       return "arrowUp";
     case GDK_KEY_Down:
       return "arrowDown";
+    case GDK_KEY_space:
+      return "keySpace";
     default:
       return nullptr;
   }
@@ -98,16 +105,59 @@ static gboolean shortcut_key_press_cb(GtkWidget* widget,
                                       GdkEventKey* event,
                                       gpointer user_data) {
   MyApplication* self = MY_APPLICATION(user_data);
-  const gchar* key = shortcut_key_for_event(event);
-  if (key == nullptr || self->shortcut_channel == nullptr) {
+  // This handler runs before FlView's own key handling (and its input method
+  // filter), so consuming a shortcut here keeps a CJK input method from
+  // turning it into composition text.
+  if (!self->shortcut_capture_enabled || self->shortcut_channel == nullptr) {
     return FALSE;
   }
+  // Leave Ctrl/Alt/Super combinations to the application and desktop.
+  if (event->state &
+      (GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK | GDK_META_MASK)) {
+    return FALSE;
+  }
+  const gchar* key = shortcut_key_for_event(event);
+  if (key == nullptr) {
+    return FALSE;
+  }
+  const guint16 keycode = event->hardware_keycode;
+  const gboolean tracked = keycode < G_N_ELEMENTS(self->swallowed_keycodes);
+  // A press for a key that is still held is auto-repeat: fire once per
+  // physical press, matching Flutter's KeyDownEvent.
+  const gboolean repeat = tracked && self->swallowed_keycodes[keycode];
+  if (!repeat) {
+    g_autoptr(FlValue) arguments = fl_value_new_map();
+    fl_value_set_string_take(arguments, "key", fl_value_new_string(key));
+    fl_method_channel_invoke_method(self->shortcut_channel, "shortcutKeyDown",
+                                    arguments, nullptr, nullptr, nullptr);
+  }
+  if (tracked) {
+    self->swallowed_keycodes[keycode] = TRUE;
+  }
+  return TRUE;
+}
 
-  g_autoptr(FlValue) arguments = fl_value_new_map();
-  fl_value_set_string_take(arguments, "key", fl_value_new_string(key));
-  fl_method_channel_invoke_method(self->shortcut_channel, "shortcutKeyDown",
-                                  arguments, nullptr, nullptr, nullptr);
-  return self->shortcut_capture_enabled;
+static gboolean shortcut_key_release_cb(GtkWidget* widget,
+                                        GdkEventKey* event,
+                                        gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  const guint16 keycode = event->hardware_keycode;
+  if (keycode >= G_N_ELEMENTS(self->swallowed_keycodes) ||
+      !self->swallowed_keycodes[keycode]) {
+    return FALSE;
+  }
+  // Consume the release only if its press was consumed.
+  self->swallowed_keycodes[keycode] = FALSE;
+  return TRUE;
+}
+
+static gboolean shortcut_focus_out_cb(GtkWidget* widget,
+                                      GdkEvent* event,
+                                      gpointer user_data) {
+  MyApplication* self = MY_APPLICATION(user_data);
+  // Releases that happen while unfocused never arrive here.
+  memset(self->swallowed_keycodes, 0, sizeof(self->swallowed_keycodes));
+  return FALSE;
 }
 
 static void shortcut_method_call_cb(FlMethodChannel* channel,
@@ -188,6 +238,10 @@ static void my_application_activate(GApplication* application) {
   fl_method_channel_set_method_call_handler(
       self->shortcut_channel, shortcut_method_call_cb, self, nullptr);
   g_signal_connect(view, "key-press-event", G_CALLBACK(shortcut_key_press_cb),
+                   self);
+  g_signal_connect(view, "key-release-event",
+                   G_CALLBACK(shortcut_key_release_cb), self);
+  g_signal_connect(view, "focus-out-event", G_CALLBACK(shortcut_focus_out_cb),
                    self);
 
   GdkRGBA background_color;
@@ -271,6 +325,7 @@ static void my_application_class_init(MyApplicationClass* klass) {
 static void my_application_init(MyApplication* self) {
   self->shortcut_channel = nullptr;
   self->shortcut_capture_enabled = FALSE;
+  memset(self->swallowed_keycodes, 0, sizeof(self->swallowed_keycodes));
 }
 
 MyApplication* my_application_new() {

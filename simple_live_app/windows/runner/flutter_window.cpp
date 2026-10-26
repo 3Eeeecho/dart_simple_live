@@ -144,26 +144,65 @@ void FlutterWindow::SetImeForShortcutCapture(bool captureEnabled) {
   // captureEnabled=true means desktop shortcuts are being captured for a
   // window without editable text: detach the IME so it cannot swallow keys.
   // Otherwise restore the default IME context for normal text input.
-  HWND hwnd = GetHandle();
-  if (!hwnd) return;
-  if (captureEnabled && !ime_disabled_) {
-    default_imc_ = ImmAssociateContext(hwnd, nullptr);
-    ime_disabled_ = true;
-  } else if (!captureEnabled && ime_disabled_) {
-    ImmAssociateContext(hwnd, default_imc_);
-    default_imc_ = nullptr;
-    ime_disabled_ = false;
+  // Keyboard focus lives on the Flutter view child window, not the top-level
+  // frame, so the IME association must be changed on the child.
+  if (captureEnabled && ime_detached_window_ == nullptr) {
+    if (!flutter_controller_ || !flutter_controller_->view()) return;
+    HWND view = flutter_controller_->view()->GetNativeWindow();
+    if (!view) return;
+    if (ImmAssociateContextEx(view, nullptr, 0)) {
+      ime_detached_window_ = view;
+    }
+  } else if (!captureEnabled && ime_detached_window_ != nullptr) {
+    if (IsWindow(ime_detached_window_)) {
+      ImmAssociateContextEx(ime_detached_window_, nullptr, IACE_DEFAULT);
+    }
+    ime_detached_window_ = nullptr;
   }
 }
 
-void FlutterWindow::OnDestroy() {
-  if (ime_disabled_) {
-    if (HWND hwnd = GetHandle()) {
-      ImmAssociateContext(hwnd, default_imc_);
-    }
-    default_imc_ = nullptr;
-    ime_disabled_ = false;
+bool FlutterWindow::PreTranslateShortcutMessage(const MSG& msg) {
+  if (msg.message != WM_KEYDOWN && msg.message != WM_KEYUP) {
+    return false;
   }
+  HWND hwnd = GetHandle();
+  if (!hwnd || (msg.hwnd != hwnd && !IsChild(hwnd, msg.hwnd))) {
+    return false;
+  }
+  // Scan code plus the extended-key bit identifies the physical key.
+  const UINT scan_code = (msg.lParam >> 16) & 0x1ff;
+
+  if (msg.message == WM_KEYUP) {
+    // Consume the key-up only if its key-down was consumed.
+    return swallowed_scan_codes_.erase(scan_code) > 0;
+  }
+
+  if (!shortcut_capture_enabled_) {
+    return false;
+  }
+  // Leave system/app combinations (Ctrl+C, Alt+F4, Win+D...) untouched.
+  if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
+      (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000)) {
+    return false;
+  }
+  const std::string key = ShortcutKeyForWindowsKey(msg.wParam, msg.lParam);
+  if (key.empty()) {
+    return false;
+  }
+  // Bit 30 set means auto-repeat; match Flutter's KeyDownEvent semantics by
+  // firing once per physical press, but keep the repeats away from the IME.
+  const bool repeat = (msg.lParam & (1 << 30)) != 0;
+  if (!repeat) {
+    SendShortcutEvent(key);
+  }
+  swallowed_scan_codes_.insert(scan_code);
+  return true;
+}
+
+void FlutterWindow::OnDestroy() {
+  // Restore the IME association before the Flutter view is torn down.
+  SetImeForShortcutCapture(false);
+  swallowed_scan_codes_.clear();
   shortcut_channel_.reset();
   window_chrome_channel_.reset();
   if (flutter_controller_) {
@@ -177,19 +216,16 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
-  switch (message) {
-    case WM_KEYDOWN:
-    case WM_SYSKEYDOWN:
-      if (HandleShortcutKeyDown(wparam, lparam)) {
-        return 0;
-      }
-      break;
-    default:
-      break;
+  // Desktop shortcut keys are intercepted in the message loop (see
+  // PreTranslateShortcutMessage): key messages go to the focused Flutter view
+  // child window and never reach this top-level handler.
+  if (message == WM_ACTIVATE && LOWORD(wparam) == WA_INACTIVE) {
+    // Key-ups released while another window is active never arrive here.
+    swallowed_scan_codes_.clear();
   }
 
   // Give Flutter, including plugins and IMEs, an opportunity to handle window
-  // messages after desktop shortcut keys have been detected by physical key.
+  // messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =
         flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
@@ -206,15 +242,6 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
-}
-
-bool FlutterWindow::HandleShortcutKeyDown(WPARAM wparam, LPARAM lparam) {
-  const std::string key = ShortcutKeyForWindowsKey(wparam, lparam);
-  if (key.empty()) {
-    return false;
-  }
-  SendShortcutEvent(key);
-  return shortcut_capture_enabled_;
 }
 
 std::string FlutterWindow::ShortcutKeyForWindowsKey(WPARAM wparam,

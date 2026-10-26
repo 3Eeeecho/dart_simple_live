@@ -116,6 +116,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   ::MSG msg;
   while (::GetMessage(&msg, nullptr, 0, 0)) {
+    // Shortcut keys are consumed before TranslateMessage so the IME never
+    // turns them into composition input.
+    if (window.PreTranslateShortcutMessage(msg)) {
+      continue;
+    }
     ::TranslateMessage(&msg);
     ::DispatchMessage(&msg);
   }

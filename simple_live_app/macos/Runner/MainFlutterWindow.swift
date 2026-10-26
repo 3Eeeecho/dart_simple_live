@@ -5,6 +5,9 @@ class MainFlutterWindow: NSWindow {
   private var shortcutChannel: FlutterMethodChannel?
   private var shortcutCaptureEnabled = false
   private var shortcutMonitor: Any?
+  // Key codes whose key-down was consumed, so the matching key-up is consumed
+  // too and Flutter never sees an unpaired event.
+  private var swallowedKeyCodes = Set<UInt16>()
 
   override func awakeFromNib() {
     let project = FlutterDartProject()
@@ -47,16 +50,34 @@ class MainFlutterWindow: NSWindow {
       result(FlutterMethodNotImplemented)
     }
 
-    shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) {
+    // Local monitors run before the input method sees the event, so consuming
+    // a shortcut here keeps a CJK input source from turning it into
+    // composition text.
+    shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) {
       [weak self] event in
-      guard let self = self else {
+      guard let self = self, event.window === self else {
+        return event
+      }
+      if event.type == .keyUp {
+        // Consume the key-up only if its key-down was consumed.
+        return self.swallowedKeyCodes.remove(event.keyCode) != nil ? nil : event
+      }
+      guard self.shortcutCaptureEnabled else {
+        return event
+      }
+      // Leave Cmd/Ctrl/Option combinations (Cmd+Q, Cmd+M...) to the system.
+      if !event.modifierFlags.intersection([.command, .control, .option]).isEmpty {
         return event
       }
       guard let key = self.shortcutKey(for: event) else {
         return event
       }
-      self.sendShortcutEvent(key)
-      return self.shortcutCaptureEnabled ? nil : event
+      // Fire once per physical press, matching Flutter's KeyDownEvent.
+      if !event.isARepeat {
+        self.sendShortcutEvent(key)
+      }
+      self.swallowedKeyCodes.insert(event.keyCode)
+      return nil
     }
 
     shortcutChannel?.invokeMethod("shortcutCaptureStateRequested", arguments: nil)
@@ -90,6 +111,8 @@ class MainFlutterWindow: NSWindow {
       return "arrowUp"
     case 125:
       return "arrowDown"
+    case 49:
+      return "keySpace"
     default:
       return nil
     }
