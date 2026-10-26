@@ -2,6 +2,9 @@ import 'dart:ffi';
 
 import 'package:media_kit/ffi/ffi.dart';
 import 'package:media_kit/generated/libmpv/bindings.dart';
+// media_kit 未公开导出 NativeLibrary（DLL 路径由 ensureInitialized 解析并缓存），
+// 退出流程需要同一份路径，复制解析逻辑会随 media_kit 版本漂移。
+// ignore: implementation_imports
 import 'package:media_kit/src/player/native/core/native_library.dart';
 
 /// 在 Windows 进程退出前，显式让 mpv 核心停止所有内部线程。
