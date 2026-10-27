@@ -22,6 +22,7 @@ import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/mpv_exit_helper.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/services/android_video_output_size.dart';
+import 'package:simple_live_app/services/lookback_span.dart';
 import 'package:simple_live_app/services/background_playback_service.dart';
 import 'package:simple_live_app/services/ios_video_output_size.dart';
 import 'package:simple_live_app/services/mpv_options_service.dart';
@@ -2087,6 +2088,9 @@ class PlayerController extends BaseController
     )) {
       return;
     }
+    if (androidFsrCompareOff.value) {
+      return;
+    }
     if (MpvOptionsService.effectiveOptions().containsKey("glsl-shaders")) {
       return;
     }
@@ -2102,6 +2106,123 @@ class PlayerController extends BaseController
       }
     } catch (e) {
       Log.d("安卓超分着色器未生效: $e");
+    }
+  }
+
+  /// Shows the source frame instead of the FSR shader, then restores it.
+  Future<void> toggleAndroidFsrCompare() async {
+    final next = !androidFsrCompareOff.value;
+    androidFsrCompareOff.value = next;
+    final platform = player.platform;
+    if (platform is! NativePlayer) {
+      return;
+    }
+    if (next) {
+      try {
+        await platform.setProperty("glsl-shaders", "");
+      } catch (e) {
+        Log.d("关闭超分对比失败: $e");
+      }
+      return;
+    }
+    _androidFsrShaderLogged = false;
+    await _applyAndroidFsrShader();
+  }
+
+  void _rememberVideoSourceSize() {
+    final width = player.state.width;
+    final height = player.state.height;
+    if (width != null && width > 0) {
+      videoSourceWidth.value = width;
+    }
+    if (height != null && height > 0) {
+      videoSourceHeight.value = height;
+    }
+  }
+
+  void _startLookbackSpanPoll() {
+    _lookbackSpanTimer?.cancel();
+    if (!Platform.isWindows && !Platform.isAndroid) {
+      return;
+    }
+    _lookbackSpanTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      if (_playerClosing) {
+        return;
+      }
+      unawaited(_refreshLookbackSpan());
+    });
+  }
+
+  Future<void> _refreshLookbackSpan() async {
+    if (_lookbackSpanReadInFlight || _playerClosing || lookbackScrubbing.value) {
+      return;
+    }
+    final minutes = AppSettingsController.instance.lookbackLimitMinutes.value;
+    if (minutes <= 0) {
+      if (lookbackSpan.value != null) {
+        lookbackSpan.value = null;
+      }
+      return;
+    }
+    _lookbackSpanReadInFlight = true;
+    try {
+      final generation = playbackMediaGeneration;
+      if (_lookbackMediaGeneration != generation) {
+        _lookbackMediaGeneration = generation;
+        _lookbackHighWater = Duration.zero;
+      }
+      final position = player.state.position;
+      final buffer = player.state.buffer;
+      if (buffer > _lookbackHighWater) {
+        _lookbackHighWater = buffer;
+      }
+      if (position > _lookbackHighWater) {
+        _lookbackHighWater = position;
+      }
+      final fromPlayer = await _readMpvLookbackSpan(position);
+      if (_playerClosing || lookbackScrubbing.value) {
+        return;
+      }
+      lookbackSpan.value = fromPlayer ??
+          lookbackSpanFromPlayback(
+            position: position,
+            edge: _lookbackHighWater,
+            cap: Duration(minutes: minutes),
+          );
+    } finally {
+      _lookbackSpanReadInFlight = false;
+    }
+  }
+
+  Future<LookbackSpan?> _readMpvLookbackSpan(Duration position) async {
+    final platform = player.platform;
+    if (platform is! NativePlayer) {
+      return null;
+    }
+    try {
+      final countRaw =
+          (await platform.getProperty("demuxer-cache-state/seekable-ranges/count"))
+              .trim();
+      final count = int.tryParse(countRaw.split(".").first) ?? 0;
+      if (count <= 0) {
+        return null;
+      }
+      final index = count - 1;
+      final startRaw = (await platform.getProperty(
+        "demuxer-cache-state/seekable-ranges/$index/start",
+      ))
+          .trim();
+      final endRaw = (await platform.getProperty(
+        "demuxer-cache-state/seekable-ranges/$index/end",
+      ))
+          .trim();
+      return lookbackSpanFromSeconds(
+        startSeconds: double.tryParse(startRaw),
+        endSeconds: double.tryParse(endRaw),
+        position: position,
+      );
+    } catch (e) {
+      return null;
     }
   }
 
@@ -2228,6 +2349,20 @@ class PlayerController extends BaseController
   Timer? _playbackStallStableTimer;
   Timer? _androidFsrShaderTimer;
   bool _androidFsrShaderLogged = false;
+  Timer? _lookbackSpanTimer;
+  bool _lookbackSpanReadInFlight = false;
+  int? _lookbackMediaGeneration;
+  Duration _lookbackHighWater = Duration.zero;
+
+  /// Cached live range for the lookback slider. Null until a range exists.
+  final lookbackSpan = Rxn<LookbackSpan>();
+  final lookbackScrubbing = false.obs;
+  final lookbackScrubPosition = Duration.zero.obs;
+
+  /// Temporary A/B switch. Picture only; danmaku is unchanged.
+  final androidFsrCompareOff = false.obs;
+  final videoSourceWidth = 0.obs;
+  final videoSourceHeight = 0.obs;
   bool _surfaceRecoveryInFlight = false;
   int _surfaceRecoveryAttempts = 0;
   int? _surfaceRecoveryLoadGeneration;
@@ -2377,6 +2512,7 @@ class PlayerController extends BaseController
 
       isVertical.value =
           (player.state.height ?? 9) > (player.state.width ?? 16);
+      _rememberVideoSourceSize();
       unawaited(refreshAutoPipOnVideoSize());
       unawaited(_syncAndroidExternalWindowLandscapeOrientation());
     });
@@ -2395,6 +2531,7 @@ class PlayerController extends BaseController
 
       isVertical.value =
           (player.state.height ?? 9) > (player.state.width ?? 16);
+      _rememberVideoSourceSize();
       unawaited(refreshAutoPipOnVideoSize());
       unawaited(_syncAndroidExternalWindowLandscapeOrientation());
     });
@@ -2406,6 +2543,7 @@ class PlayerController extends BaseController
     // Fix Issue #57: 启动Surface健康检查
     _startSurfaceHealthCheck();
     _startPlaybackStallWatchdog();
+    _startLookbackSpanPoll();
     _backgroundEventSubscription = BackgroundPlaybackService.instance.events
         .listen(_handleBackgroundPlaybackEvent);
   }
@@ -2427,6 +2565,11 @@ class PlayerController extends BaseController
     _iosVideoOutputSyncTimer?.cancel();
     _androidFsrShaderTimer?.cancel();
     _androidFsrShaderTimer = null;
+    _lookbackSpanTimer?.cancel();
+    _lookbackSpanTimer = null;
+    androidFsrCompareOff.value = false;
+    lookbackSpan.value = null;
+    lookbackScrubbing.value = false;
     _iosOriginalQualityPowerSavingWorker?.dispose();
     _iosOriginalQualityPowerSavingWorker = null;
     _iosVideoOutputSyncTimer = null;
@@ -2886,17 +3029,28 @@ class PlayerController extends BaseController
 
   /// Seek only the picture. Danmaku keeps its own clock.
   Future<void> seekBackward(Duration by) async {
-    _resetPlaybackStallSample();
     final current = player.state.position;
     var target = current - by;
     if (target.isNegative) {
       target = Duration.zero;
     }
+    await seekLookback(target);
+  }
+
+  /// Seek the picture to a point inside the live cache.
+  Future<void> seekLookback(Duration target) async {
+    _resetPlaybackStallSample();
+    if (target.isNegative) {
+      target = Duration.zero;
+    }
+    lookbackScrubbing.value = true;
+    lookbackScrubPosition.value = target;
     try {
       await player.seek(target);
     } catch (e, stackTrace) {
       Log.e("回看失败: $e", stackTrace);
     }
+    lookbackScrubbing.value = false;
     _resetPlaybackStallSample();
   }
 

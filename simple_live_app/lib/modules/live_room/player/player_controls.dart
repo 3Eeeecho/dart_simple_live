@@ -13,7 +13,9 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/modules/live_room/live_room_controller.dart';
 import 'package:simple_live_app/modules/settings/danmu_settings_page.dart';
+import 'package:simple_live_app/services/android_video_output_size.dart';
 import 'package:simple_live_app/services/live_subtitle_service.dart';
+import 'package:simple_live_app/services/lookback_span.dart';
 import 'package:simple_live_app/widgets/superchat_card.dart';
 import 'package:simple_live_core/simple_live_core.dart';
 import 'package:window_manager/window_manager.dart';
@@ -519,7 +521,7 @@ Widget _buildFullBottomBar(
     return AnimatedPositioned(
       left: 0,
       right: 0,
-      bottom: visible ? 0 : -(80 + padding.bottom),
+      bottom: visible ? 0 : -(80 + padding.bottom + _lookbackAndSrExtraHeight()),
       duration: const Duration(milliseconds: 200),
       child: Container(
         decoration: const BoxDecoration(
@@ -539,7 +541,12 @@ Widget _buildFullBottomBar(
         ),
         child: smallWindow
             ? _buildSmallWindowBottomBar(controller, showDanmaku)
-            : Row(
+            : Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _androidSrChip(controller),
+            _lookbackSlider(controller),
+            Row(
           children: [
             IconButton(
               onPressed: controller.refreshRoom,
@@ -659,9 +666,24 @@ Widget _buildFullBottomBar(
             ),
           ],
         ),
+          ],
+        ),
       ),
     );
   });
+}
+
+double _lookbackAndSrExtraHeight() {
+  var extra = 0.0;
+  final settings = AppSettingsController.instance;
+  if ((Platform.isWindows || Platform.isAndroid) &&
+      settings.lookbackLimitMinutes.value > 0) {
+    extra += 36;
+  }
+  if (Platform.isAndroid && settings.androidSuperResolution.value) {
+    extra += 32;
+  }
+  return extra;
 }
 
 bool _hidePortraitLookbackDuration(bool isPortrait) {
@@ -689,10 +711,22 @@ List<Widget> _lookbackButtons(LiveRoomController controller) {
           controller.seekBackward(Duration(seconds: value));
         },
         itemBuilder: (context) => const [
-          PopupMenuItem(value: 10, child: Text("后退 10 秒")),
-          PopupMenuItem(value: 30, child: Text("后退 30 秒")),
-          PopupMenuItem(value: 60, child: Text("后退 60 秒")),
-          PopupMenuItem(value: 0, child: Text("回到直播")),
+          PopupMenuItem(
+            value: 10,
+            child: Text("后退 10 秒", style: TextStyle(color: Colors.white)),
+          ),
+          PopupMenuItem(
+            value: 30,
+            child: Text("后退 30 秒", style: TextStyle(color: Colors.white)),
+          ),
+          PopupMenuItem(
+            value: 60,
+            child: Text("后退 60 秒", style: TextStyle(color: Colors.white)),
+          ),
+          PopupMenuItem(
+            value: 0,
+            child: Text("回到直播", style: TextStyle(color: Colors.white)),
+          ),
         ],
         child: const SizedBox(
           width: 40,
@@ -799,7 +833,9 @@ Widget _buildNormalBottomBar(
     return AnimatedPositioned(
       left: 0,
       right: 0,
-      bottom: controller.showControlsState.value ? 0 : -48,
+      bottom: controller.showControlsState.value
+          ? 0
+          : -(48 + _lookbackAndSrExtraHeight()),
       duration: const Duration(milliseconds: 200),
       child: Container(
         decoration: const BoxDecoration(
@@ -812,7 +848,12 @@ Widget _buildNormalBottomBar(
             ],
           ),
         ),
-        child: Row(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _androidSrChip(controller),
+            _lookbackSlider(controller),
+            Row(
           children: [
             IconButton(
               onPressed: controller.refreshRoom,
@@ -928,10 +969,163 @@ Widget _buildNormalBottomBar(
               ),
             ),
           ],
+            ),
+          ],
         ),
       ),
     );
   });
+}
+
+Widget _androidSrChip(LiveRoomController controller) {
+  if (!Platform.isAndroid) {
+    return const SizedBox.shrink();
+  }
+  return Obx(() {
+    final settings = AppSettingsController.instance;
+    if (!settings.androidSuperResolution.value) {
+      return const SizedBox.shrink();
+    }
+    final sourceWidth = controller.videoSourceWidth.value;
+    final sourceHeight = controller.videoSourceHeight.value;
+    final compareOff = controller.androidFsrCompareOff.value;
+    final powerSave = settings.powerSaveMode.value;
+    var label = "超分等待画面";
+    var canCompare = false;
+    if (powerSave) {
+      label = "省电中，超分关闭";
+    } else if (sourceWidth >= 2 && sourceHeight >= 2) {
+      final output = androidSuperResolutionOutputForCurrentScreen(
+        sourceWidth,
+        sourceHeight,
+      );
+      final upscaling = output != null &&
+          output.$1 > sourceWidth &&
+          output.$2 > sourceHeight;
+      if (!upscaling) {
+        label = "未放大 $sourceWidth×$sourceHeight";
+      } else if (compareOff) {
+        label = "原图 $sourceWidth×$sourceHeight";
+        canCompare = true;
+      } else {
+        label = "超分 $sourceWidth×$sourceHeight→${output.$1}×${output.$2}";
+        canCompare = true;
+      }
+    }
+    return SizedBox(
+      height: 32,
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          if (canCompare)
+            TextButton(
+              onPressed: controller.toggleAndroidFsrCompare,
+              style: TextButton.styleFrom(
+                foregroundColor: Colors.white,
+                backgroundColor: Colors.white24,
+                minimumSize: const Size(64, 28),
+                padding: const EdgeInsets.symmetric(horizontal: 10),
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+              child: Text(compareOff ? "看超分" : "看原图"),
+            ),
+        ],
+      ),
+    );
+  });
+}
+
+Widget _lookbackSlider(LiveRoomController controller) {
+  if (!Platform.isWindows && !Platform.isAndroid) {
+    return const SizedBox.shrink();
+  }
+  return Obx(() {
+    if (AppSettingsController.instance.lookbackLimitMinutes.value <= 0) {
+      return const SizedBox.shrink();
+    }
+    final span = controller.lookbackSpan.value;
+    final scrubbing = controller.lookbackScrubbing.value;
+    final shown = scrubbing
+        ? controller.lookbackScrubPosition.value
+        : (span?.position ?? Duration.zero);
+    final enabled = span != null && span.canScrub;
+    final fraction = enabled ? _fractionInSpan(span, shown) : 1.0;
+    final behind = span == null ? Duration.zero : span.end - shown;
+    final label = enabled ? lookbackBehindLabel(behind) : "缓存中";
+    return SizedBox(
+      height: 32,
+      child: Row(
+        children: [
+          SizedBox(
+            width: 52,
+            child: Text(
+              label,
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+            ),
+          ),
+          Expanded(
+            child: SliderTheme(
+              data: const SliderThemeData(
+                trackHeight: 3,
+                activeTrackColor: Colors.white,
+                inactiveTrackColor: Colors.white38,
+                thumbColor: Colors.white,
+                disabledActiveTrackColor: Colors.white24,
+                disabledInactiveTrackColor: Colors.white24,
+                disabledThumbColor: Colors.white54,
+                overlayColor: Colors.white24,
+                thumbShape: RoundSliderThumbShape(enabledThumbRadius: 7),
+                overlayShape: RoundSliderOverlayShape(overlayRadius: 14),
+              ),
+              child: Slider(
+                value: fraction.clamp(0.0, 1.0),
+                onChanged: !enabled
+                    ? null
+                    : (value) {
+                        controller.lookbackScrubbing.value = true;
+                        controller.lookbackScrubPosition.value =
+                            span.positionForFraction(value);
+                      },
+                onChangeEnd: !enabled
+                    ? null
+                    : (value) {
+                        controller.seekLookback(span.positionForFraction(value));
+                      },
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: controller.refreshRoom,
+            style: TextButton.styleFrom(
+              foregroundColor: Colors.white,
+              minimumSize: const Size(40, 28),
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text("直播"),
+          ),
+        ],
+      ),
+    );
+  });
+}
+
+double _fractionInSpan(LookbackSpan span, Duration position) {
+  if (!span.canScrub) {
+    return 1;
+  }
+  final raw = (position - span.start).inMilliseconds / span.length.inMilliseconds;
+  if (raw.isNaN) {
+    return 1;
+  }
+  return raw.clamp(0.0, 1.0);
 }
 
 Widget _buildSideLockButton(

@@ -66,7 +66,7 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     () => SettingsSwitch(
                       title: "画面超分",
                       subtitle:
-                          "横屏全屏后，屏幕比直播源大才会放大，例如 720p 源在 1080p 屏上。不走兼容模式，更热更耗电。省电模式开启时不生效。重新进入直播间后生效。黑屏请关闭。",
+                          "横屏全屏后，屏幕比直播源大才会放大，例如 720p 源在 1080p 屏上。播放器会标出当前倍数，点「看原图」可对比。不走兼容模式，更热更耗电。省电模式开启时不生效。重新进入直播间后生效。黑屏请关闭。",
                       value: controller.androidSuperResolution.value,
                       onChanged: controller.setAndroidSuperResolution,
                     ),
