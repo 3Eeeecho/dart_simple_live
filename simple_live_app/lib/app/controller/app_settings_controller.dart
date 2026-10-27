@@ -303,6 +303,8 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kMpvProfile, "balanced");
     nvidiaSuperResolution.value = LocalStorageService.instance
         .getValue(LocalStorageService.kNvidiaSuperResolution, false);
+    androidSuperResolution.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kAndroidSuperResolution, false);
     lookbackLimitMinutes.value = _clampLookbackMinutes(
       LocalStorageService.instance
           .getValue(LocalStorageService.kLookbackLimitMinutes, 0),
@@ -2737,6 +2739,15 @@ class AppSettingsController extends GetxController {
     nvidiaSuperResolution.value = e;
     LocalStorageService.instance.setValue(
       LocalStorageService.kNvidiaSuperResolution,
+      e,
+    );
+  }
+
+  var androidSuperResolution = false.obs;
+  void setAndroidSuperResolution(bool e) {
+    androidSuperResolution.value = e;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kAndroidSuperResolution,
       e,
     );
   }

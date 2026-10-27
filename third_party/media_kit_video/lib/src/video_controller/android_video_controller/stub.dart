@@ -12,6 +12,9 @@ import 'package:media_kit_video/src/video_controller/platform_video_controller.d
 class AndroidVideoController extends PlatformVideoController {
   static const bool supported = false;
 
+  static (int, int)? Function(int sourceWidth, int sourceHeight)?
+      outputSizeForSource;
+
   AndroidVideoController._(
     super.player,
     super.configuration,

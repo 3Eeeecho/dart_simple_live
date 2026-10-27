@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 import 'package:path/path.dart' as p;
@@ -11,6 +12,8 @@ import 'package:simple_live_app/app/log.dart';
 class MpvOptionsService {
   static const int maxLookbackMinutes = 15;
   static const int lookbackMebibytesPerMinute = 80;
+  static const int androidLookbackMebibytesPerMinute = 32;
+  static const String androidFsrAsset = 'assets/mpv/fsr_easu.glsl';
 
   static const Map<String, String> profileLabels = {
     "performance": "流畅",
@@ -29,24 +32,48 @@ class MpvOptionsService {
   }
 
   /// Byte cap for already-played data. Zero minutes keeps the old 8MiB back buffer.
-  static String lookbackBackBytesLabel(int minutes) {
+  static String lookbackBackBytesLabel(
+    int minutes, {
+    int? mebibytesPerMinute,
+  }) {
     final clamped = clampLookbackMinutes(minutes);
     if (clamped == 0) {
       return "8MiB";
     }
-    return "${clamped * lookbackMebibytesPerMinute}MiB";
+    final perMinute = mebibytesPerMinute ?? lookbackMebibytesPerMinute;
+    return "${clamped * perMinute}MiB";
   }
 
-  static String lookbackMaxBytesLabel(int minutes) {
+  static String lookbackMaxBytesLabel(
+    int minutes, {
+    int? mebibytesPerMinute,
+  }) {
     final clamped = clampLookbackMinutes(minutes);
     if (clamped == 0) {
       return "16MiB";
     }
-    return "${clamped * lookbackMebibytesPerMinute + 32}MiB";
+    final perMinute = mebibytesPerMinute ?? lookbackMebibytesPerMinute;
+    return "${clamped * perMinute + 32}MiB";
+  }
+
+  static int lookbackMebibytesForPlatform() {
+    return Platform.isAndroid
+        ? androidLookbackMebibytesPerMinute
+        : lookbackMebibytesPerMinute;
   }
 
   static String windowsHwdec({required bool nvidiaSuperResolution}) {
     return nvidiaSuperResolution ? "d3d11va" : "d3d11va-copy";
+  }
+
+  static String androidSuperResolutionHwdec({required bool hardwareDecode}) {
+    return hardwareDecode ? "mediacodec-copy" : "no";
+  }
+
+  static bool androidSuperResolutionActive(AppSettingsController settings) {
+    return Platform.isAndroid &&
+        settings.androidSuperResolution.value &&
+        !settings.powerSaveMode.value;
   }
 
   static const Map<String, Map<String, String>> desktopProfiles = {
@@ -125,10 +152,18 @@ class MpvOptionsService {
         source["ao"] = "custom";
       }
     }
-    if (Platform.isWindows && settings.lookbackLimitMinutes.value > 0) {
+    if ((Platform.isWindows || Platform.isAndroid) &&
+        settings.lookbackLimitMinutes.value > 0) {
       final minutes = settings.lookbackLimitMinutes.value;
-      options["demuxer-max-back-bytes"] = lookbackBackBytesLabel(minutes);
-      options["demuxer-max-bytes"] = lookbackMaxBytesLabel(minutes);
+      final perMinute = lookbackMebibytesForPlatform();
+      options["demuxer-max-back-bytes"] = lookbackBackBytesLabel(
+        minutes,
+        mebibytesPerMinute: perMinute,
+      );
+      options["demuxer-max-bytes"] = lookbackMaxBytesLabel(
+        minutes,
+        mebibytesPerMinute: perMinute,
+      );
       source["demuxer-max-back-bytes"] = "lookback";
       source["demuxer-max-bytes"] = "lookback";
     }
@@ -153,6 +188,20 @@ class MpvOptionsService {
 
   static VideoControllerConfiguration videoControllerConfiguration() {
     final settings = AppSettingsController.instance;
+    if (androidSuperResolutionActive(settings)) {
+      return VideoControllerConfiguration(
+        vo: "gpu",
+        hwdec: androidSuperResolutionHwdec(
+          hardwareDecode: settings.hardwareDecode.value,
+        ),
+        // scale > 1 asks the Android surface to grow beyond the source,
+        // up to this factor and the current screen. The FSR hook only runs
+        // when that output is larger than the luma plane.
+        scale: 2.0,
+        enableHardwareAcceleration: settings.hardwareDecode.value,
+        androidAttachSurfaceAfterVideoParameters: true,
+      );
+    }
     if (settings.playerCompatMode.value && Platform.isAndroid) {
       return const VideoControllerConfiguration(
         vo: 'mediacodec_embed',
@@ -213,12 +262,39 @@ class MpvOptionsService {
       ..addAll(effectiveOptions())
       ..remove("vo")
       ..remove("hwdec");
+    final settings = AppSettingsController.instance;
+    if (androidSuperResolutionActive(settings) &&
+        !options.containsKey("glsl-shaders")) {
+      final shader = await ensureAndroidFsrShader();
+      if (shader != null) {
+        options["glsl-shaders"] = shader;
+      }
+    }
     for (final entry in options.entries) {
       try {
         await nativePlayer.setProperty(entry.key, entry.value);
       } catch (e) {
         Log.d("mpv option skipped: ${entry.key}=${entry.value} $e");
       }
+    }
+  }
+
+  static Future<String?> ensureAndroidFsrShader() async {
+    try {
+      final support = await getApplicationSupportDirectory();
+      final file = File(p.join(support.path, "mpv", "fsr_easu.glsl"));
+      if (!await file.exists() || await file.length() < 1000) {
+        final data = await rootBundle.load(androidFsrAsset);
+        await file.parent.create(recursive: true);
+        await file.writeAsBytes(
+          data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+          flush: true,
+        );
+      }
+      return file.path;
+    } catch (e, stackTrace) {
+      Log.e("准备安卓超分着色器失败: $e", stackTrace);
+      return null;
     }
   }
 

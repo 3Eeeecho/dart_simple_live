@@ -21,6 +21,7 @@ import 'package:simple_live_app/app/custom_throttle.dart';
 import 'package:simple_live_app/app/log.dart';
 import 'package:simple_live_app/app/mpv_exit_helper.dart';
 import 'package:simple_live_app/app/utils.dart';
+import 'package:simple_live_app/services/android_video_output_size.dart';
 import 'package:simple_live_app/services/background_playback_service.dart';
 import 'package:simple_live_app/services/ios_video_output_size.dart';
 import 'package:simple_live_app/services/mpv_options_service.dart';
@@ -203,10 +204,18 @@ mixin PlayerMixin {
   }
 
   /// 视频控制器
-  late final videoController = VideoController(
-    player,
-    configuration: MpvOptionsService.videoControllerConfiguration(),
-  );
+  late final videoController = _createVideoController();
+
+  VideoController _createVideoController() {
+    if (Platform.isAndroid) {
+      AndroidVideoController.outputSizeForSource =
+          androidSuperResolutionOutputForCurrentScreen;
+    }
+    return VideoController(
+      player,
+      configuration: MpvOptionsService.videoControllerConfiguration(),
+    );
+  }
 }
 
 mixin PlayerStateMixin on PlayerMixin {
@@ -2050,6 +2059,52 @@ class PlayerController extends BaseController
     return '${player.state.width ?? 0}x${player.state.height ?? 0}';
   }
 
+  void _scheduleAndroidFsrShader() {
+    if (!Platform.isAndroid || _playerClosing) {
+      return;
+    }
+    if (!MpvOptionsService.androidSuperResolutionActive(
+      AppSettingsController.instance,
+    )) {
+      return;
+    }
+    _androidFsrShaderTimer?.cancel();
+    _androidFsrShaderTimer = Timer(const Duration(milliseconds: 350), () {
+      _androidFsrShaderTimer = null;
+      if (_playerClosing) {
+        return;
+      }
+      unawaited(_applyAndroidFsrShader());
+    });
+  }
+
+  Future<void> _applyAndroidFsrShader() async {
+    if (!Platform.isAndroid || _playerClosing) {
+      return;
+    }
+    if (!MpvOptionsService.androidSuperResolutionActive(
+      AppSettingsController.instance,
+    )) {
+      return;
+    }
+    if (MpvOptionsService.effectiveOptions().containsKey("glsl-shaders")) {
+      return;
+    }
+    final shader = await MpvOptionsService.ensureAndroidFsrShader();
+    if (shader == null || _playerClosing) {
+      return;
+    }
+    try {
+      await (player.platform as dynamic).setProperty('glsl-shaders', shader);
+      if (!_androidFsrShaderLogged) {
+        _androidFsrShaderLogged = true;
+        Log.i("安卓超分着色器已设置");
+      }
+    } catch (e) {
+      Log.d("安卓超分着色器未生效: $e");
+    }
+  }
+
   void _handleVideoParamsForIosOutput(VideoParams params) {
     var width = params.dw ?? params.w ?? player.state.width;
     var height = params.dh ?? params.h ?? player.state.height;
@@ -2171,6 +2226,8 @@ class PlayerController extends BaseController
   Timer? _surfaceHealthCheckTimer;
   Timer? _playbackStallWatchdogTimer;
   Timer? _playbackStallStableTimer;
+  Timer? _androidFsrShaderTimer;
+  bool _androidFsrShaderLogged = false;
   bool _surfaceRecoveryInFlight = false;
   int _surfaceRecoveryAttempts = 0;
   int? _surfaceRecoveryLoadGeneration;
@@ -2341,9 +2398,10 @@ class PlayerController extends BaseController
       unawaited(refreshAutoPipOnVideoSize());
       unawaited(_syncAndroidExternalWindowLandscapeOrientation());
     });
-    _videoParamsSubscription = player.stream.videoParams.listen(
-      _handleVideoParamsForIosOutput,
-    );
+    _videoParamsSubscription = player.stream.videoParams.listen((params) {
+      _handleVideoParamsForIosOutput(params);
+      _scheduleAndroidFsrShader();
+    });
 
     // Fix Issue #57: 启动Surface健康检查
     _startSurfaceHealthCheck();
@@ -2367,6 +2425,8 @@ class PlayerController extends BaseController
     _playbackStallWatchdogTimer?.cancel();
     _playbackStallStableTimer?.cancel();
     _iosVideoOutputSyncTimer?.cancel();
+    _androidFsrShaderTimer?.cancel();
+    _androidFsrShaderTimer = null;
     _iosOriginalQualityPowerSavingWorker?.dispose();
     _iosOriginalQualityPowerSavingWorker = null;
     _iosVideoOutputSyncTimer = null;

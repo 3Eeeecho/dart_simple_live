@@ -8,6 +8,7 @@ import 'dart:async';
 import 'dart:collection';
 import 'package:flutter/services.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:synchronized/synchronized.dart';
 
 import 'package:media_kit/media_kit.dart';
@@ -26,6 +27,13 @@ import 'package:media_kit_video/src/video_controller/platform_video_controller.d
 class AndroidVideoController extends PlatformVideoController {
   /// Whether [AndroidVideoController] is supported on the current platform or not.
   static bool get supported => Platform.isAndroid;
+
+  /// Optional output size for a decoded frame. Used when
+  /// [VideoControllerConfiguration.scale] is greater than 1 so a shader can
+  /// upscale into a surface larger than the source. Return null to keep the
+  /// source size. A size smaller than the source is ignored.
+  static (int, int)? Function(int sourceWidth, int sourceHeight)?
+      outputSizeForSource;
 
   /// Pointer address to the global object reference of `android.view.Surface` i.e. `(intptr_t)(*android.view.Surface)`.
   final ValueNotifier<int?> wid = ValueNotifier<int?>(null);
@@ -78,6 +86,10 @@ class AndroidVideoController extends PlatformVideoController {
   /// [StreamSubscription] for listening to video [Rect].
   StreamSubscription<VideoParams>? videoParamsSubscription;
 
+  int? _sourceWidth;
+  int? _sourceHeight;
+  WidgetsBindingObserver? _metricsObserver;
+
   /// {@macro android_video_controller}
   AndroidVideoController._(
     super.player,
@@ -96,37 +108,87 @@ class AndroidVideoController extends PlatformVideoController {
           width = event.dh ?? 0;
           height = event.dw ?? 0;
         }
-
-        final isZero = width == 0 || height == 0;
-        final isSame = width == rect.value?.width.toInt() &&
-            height == rect.value?.height.toInt();
-        if (isZero || isSame) {
+        if (width <= 0 || height <= 0) {
           return;
         }
-
-        final handle = await player.handle;
-
-        await _channel.invokeMethod(
-          'VideoOutputManager.SetSurfaceSize',
-          {
-            'handle': handle.toString(),
-            'width': width.toString(),
-            'height': height.toString(),
-          },
-        );
-
-        rect.value = Rect.fromLTWH(
-          0.0,
-          0.0,
-          width.toDouble(),
-          height.toDouble(),
-        );
-
-        if (!waitUntilFirstFrameRenderedCompleter.isCompleted) {
-          waitUntilFirstFrameRenderedCompleter.complete();
-        }
+        await _applySurfaceSize(width, height);
       }),
     );
+  }
+
+  void _observeDisplayMetrics() {
+    _metricsObserver ??= _AndroidDisplayMetricsObserver(() {
+      final width = _sourceWidth;
+      final height = _sourceHeight;
+      if (width == null || height == null) {
+        return;
+      }
+      unawaited(
+        lock.synchronized(() => _applySurfaceSize(width, height)),
+      );
+    });
+    WidgetsBinding.instance.addObserver(_metricsObserver!);
+  }
+
+  (int, int) _resolveOutputSize(int width, int height) {
+    if (configuration.scale <= 1.0) {
+      return (width, height);
+    }
+    final resolver = outputSizeForSource;
+    if (resolver == null) {
+      return (width, height);
+    }
+    try {
+      final sized = resolver(width, height);
+      if (sized == null) {
+        return (width, height);
+      }
+      final outWidth = sized.$1;
+      final outHeight = sized.$2;
+      if (outWidth < width || outHeight < height) {
+        return (width, height);
+      }
+      if (outWidth > width * 4 || outHeight > height * 4) {
+        return (width, height);
+      }
+      return (outWidth, outHeight);
+    } catch (exception, stacktrace) {
+      debugPrint(exception.toString());
+      debugPrint(stacktrace.toString());
+      return (width, height);
+    }
+  }
+
+  Future<void> _applySurfaceSize(int width, int height) async {
+    _sourceWidth = width;
+    _sourceHeight = height;
+    final output = _resolveOutputSize(width, height);
+    final isSame = output.$1 == rect.value?.width.toInt() &&
+        output.$2 == rect.value?.height.toInt();
+    if (isSame && rect.value != null) {
+      return;
+    }
+
+    final handle = await player.handle;
+    await _channel.invokeMethod(
+      'VideoOutputManager.SetSurfaceSize',
+      {
+        'handle': handle.toString(),
+        'width': output.$1.toString(),
+        'height': output.$2.toString(),
+      },
+    );
+
+    rect.value = Rect.fromLTWH(
+      0.0,
+      0.0,
+      output.$1.toDouble(),
+      output.$2.toDouble(),
+    );
+
+    if (!waitUntilFirstFrameRenderedCompleter.isCompleted) {
+      waitUntilFirstFrameRenderedCompleter.complete();
+    }
   }
 
   /// {@macro android_video_controller}
@@ -183,6 +245,9 @@ class AndroidVideoController extends PlatformVideoController {
 
     // Store the [VideoController] in the [_controllers].
     _controllers[handle] = controller;
+    if (configuration.scale > 1.0) {
+      controller._observeDisplayMetrics();
+    }
 
     await _channel.invokeMethod(
       'VideoOutputManager.Create',
@@ -229,6 +294,11 @@ class AndroidVideoController extends PlatformVideoController {
 
   /// Disposes the instance. Releases allocated resources back to the system.
   Future<void> _dispose() async {
+    final metricsObserver = _metricsObserver;
+    if (metricsObserver != null) {
+      WidgetsBinding.instance.removeObserver(metricsObserver);
+      _metricsObserver = null;
+    }
     super.dispose();
     wid.dispose();
     wid.removeListener(widListener);
@@ -296,4 +366,15 @@ class AndroidVideoController extends PlatformVideoController {
             }
           },
         );
+}
+
+class _AndroidDisplayMetricsObserver extends WidgetsBindingObserver {
+  final void Function() onMetricsChanged;
+
+  _AndroidDisplayMetricsObserver(this.onMetricsChanged);
+
+  @override
+  void didChangeMetrics() {
+    onMetricsChanged();
+  }
 }

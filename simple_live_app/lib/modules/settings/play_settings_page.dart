@@ -61,12 +61,24 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                     ),
                   ),
                 if (Platform.isWindows) AppStyle.divider,
-                if (Platform.isWindows)
+                if (Platform.isAndroid)
+                  Obx(
+                    () => SettingsSwitch(
+                      title: "画面超分",
+                      subtitle:
+                          "横屏全屏后，屏幕比直播源大才会放大，例如 720p 源在 1080p 屏上。不走兼容模式，更热更耗电。省电模式开启时不生效。重新进入直播间后生效。黑屏请关闭。",
+                      value: controller.androidSuperResolution.value,
+                      onChanged: controller.setAndroidSuperResolution,
+                    ),
+                  ),
+                if (Platform.isAndroid) AppStyle.divider,
+                if (Platform.isWindows || Platform.isAndroid)
                   Obx(
                     () => SettingsNumber(
                       title: "回看上限",
-                      subtitle:
-                          "0 为关闭。只回退画面，弹幕仍是实时的。每分钟约 80MB 内存上限，最高 15 分钟。重新进入直播间后生效。",
+                      subtitle: Platform.isAndroid
+                          ? "0 为关闭。只回退画面，弹幕仍是实时的。安卓每分钟约 32MB 内存上限，最高 15 分钟。重新进入直播间后生效。"
+                          : "0 为关闭。只回退画面，弹幕仍是实时的。每分钟约 80MB 内存上限，最高 15 分钟。重新进入直播间后生效。",
                       value: controller.lookbackLimitMinutes.value,
                       min: 0,
                       max: 15,
@@ -74,7 +86,7 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                       onChanged: controller.setLookbackLimitMinutes,
                     ),
                   ),
-                if (Platform.isWindows) AppStyle.divider,
+                if (Platform.isWindows || Platform.isAndroid) AppStyle.divider,
                 Obx(
                   () => SettingsSwitch(
                     title: Platform.isIOS ? "硬件加速" : "硬件解码",

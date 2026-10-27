@@ -559,7 +559,7 @@ Widget _buildFullBottomBar(
                 ),
               ),
             ),
-            ..._windowsLookbackButtons(controller),
+            ..._lookbackButtons(controller),
             IconButton(
               onPressed: () {
                 controller.setDanmakuVisible(!showDanmaku);
@@ -664,10 +664,43 @@ Widget _buildFullBottomBar(
   });
 }
 
-List<Widget> _windowsLookbackButtons(LiveRoomController controller) {
-  if (!Platform.isWindows ||
+bool _hidePortraitLookbackDuration(bool isPortrait) {
+  return isPortrait &&
+      Platform.isAndroid &&
+      AppSettingsController.instance.lookbackLimitMinutes.value > 0;
+}
+
+List<Widget> _lookbackButtons(LiveRoomController controller) {
+  if ((!Platform.isWindows && !Platform.isAndroid) ||
       AppSettingsController.instance.lookbackLimitMinutes.value <= 0) {
     return const [];
+  }
+  if (Platform.isAndroid) {
+    return [
+      PopupMenuButton<int>(
+        tooltip: "回看",
+        padding: EdgeInsets.zero,
+        color: Colors.black87,
+        onSelected: (value) {
+          if (value == 0) {
+            controller.refreshRoom();
+            return;
+          }
+          controller.seekBackward(Duration(seconds: value));
+        },
+        itemBuilder: (context) => const [
+          PopupMenuItem(value: 10, child: Text("后退 10 秒")),
+          PopupMenuItem(value: 30, child: Text("后退 30 秒")),
+          PopupMenuItem(value: 60, child: Text("后退 60 秒")),
+          PopupMenuItem(value: 0, child: Text("回到直播")),
+        ],
+        child: const SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(Icons.fast_rewind, color: Colors.white, size: 22),
+        ),
+      ),
+    ];
   }
   Widget button(String label, Duration by) {
     return TextButton(
@@ -799,7 +832,7 @@ Widget _buildNormalBottomBar(
                 ),
               ),
             ),
-            ..._windowsLookbackButtons(controller),
+            ..._lookbackButtons(controller),
             IconButton(
               onPressed: () {
                 controller.setDanmakuVisible(!showDanmaku);
@@ -822,13 +855,14 @@ Widget _buildNormalBottomBar(
                 color: Colors.white,
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(
-                controller.liveDuration.value,
-                style: const TextStyle(fontSize: 14, color: Colors.white),
+            if (!_hidePortraitLookbackDuration(isPortrait))
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: Text(
+                  controller.liveDuration.value,
+                  style: const TextStyle(fontSize: 14, color: Colors.white),
+                ),
               ),
-            ),
             const Expanded(child: SizedBox()),
             if (!Platform.isAndroid && !Platform.isIOS)
               IconButton(
