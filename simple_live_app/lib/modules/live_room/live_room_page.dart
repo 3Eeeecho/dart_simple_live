@@ -418,15 +418,11 @@ class LiveRoomPage extends GetView<LiveRoomController> {
               await _handleBack(context);
             },
             child: Scaffold(
-              body: MouseRegion(
-                onEnter: (_) => controller.showControls(),
-                onHover: (_) => controller.showControls(),
-                child: Stack(
-                  children: [
-                    body,
-                    ..._buildDesktopOverlayButtons(context),
-                  ],
-                ),
+              body: Stack(
+                children: [
+                  body,
+                  ..._buildDesktopOverlayButtons(context),
+                ],
               ),
             ),
           );

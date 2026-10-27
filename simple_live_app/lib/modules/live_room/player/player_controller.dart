@@ -406,7 +406,7 @@ mixin PlayerStateMixin on PlayerMixin {
 
     hideControlsTimer = Timer(
       const Duration(
-        seconds: 5,
+        seconds: 2,
       ),
       hideControls,
     );
@@ -421,7 +421,7 @@ mixin PlayerStateMixin on PlayerMixin {
     hideMouseCursorTimer?.cancel();
     hideMouseCursorTimer = Timer(
       const Duration(
-        seconds: 5,
+        seconds: 2,
       ),
       hideMouseCursor,
     );
