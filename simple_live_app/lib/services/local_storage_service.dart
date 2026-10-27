@@ -126,6 +126,8 @@ class LocalStorageService extends GetxService {
   static const String kWindowsGpuPreference = "WindowsGpuPreference";
   static const String kAudioOutputDriver = "AudioOutputDriver";
   static const String kMpvProfile = "MpvProfile";
+  static const String kNvidiaSuperResolution = "NvidiaSuperResolution";
+  static const String kLookbackLimitMinutes = "LookbackLimitMinutes";
   static const String kMpvAdvancedOptions = "MpvAdvancedOptions";
   static const String kImportedMpvConfPath = "ImportedMpvConfPath";
   static const String kAutoUpdateFollowEnable = "AutoUpdateFollowEnable";

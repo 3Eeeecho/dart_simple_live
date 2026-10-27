@@ -559,6 +559,7 @@ Widget _buildFullBottomBar(
                 ),
               ),
             ),
+            ..._windowsLookbackButtons(controller),
             IconButton(
               onPressed: () {
                 controller.setDanmakuVisible(!showDanmaku);
@@ -663,6 +664,39 @@ Widget _buildFullBottomBar(
   });
 }
 
+List<Widget> _windowsLookbackButtons(LiveRoomController controller) {
+  if (!Platform.isWindows ||
+      AppSettingsController.instance.lookbackLimitMinutes.value <= 0) {
+    return const [];
+  }
+  Widget button(String label, Duration by) {
+    return TextButton(
+      onPressed: () => controller.seekBackward(by),
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white,
+        minimumSize: const Size(40, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+      ),
+      child: Text(label),
+    );
+  }
+
+  return [
+    button("-10秒", const Duration(seconds: 10)),
+    button("-30秒", const Duration(seconds: 30)),
+    button("-60秒", const Duration(seconds: 60)),
+    TextButton(
+      onPressed: controller.refreshRoom,
+      style: TextButton.styleFrom(
+        foregroundColor: Colors.white,
+        minimumSize: const Size(40, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+      ),
+      child: const Text("回到直播"),
+    ),
+  ];
+}
+
 /// 小窗模式的紧凑底部栏：窗口太小，只保留常用按钮
 Widget _buildSmallWindowBottomBar(
   LiveRoomController controller,
@@ -765,6 +799,7 @@ Widget _buildNormalBottomBar(
                 ),
               ),
             ),
+            ..._windowsLookbackButtons(controller),
             IconButton(
               onPressed: () {
                 controller.setDanmakuVisible(!showDanmaku);

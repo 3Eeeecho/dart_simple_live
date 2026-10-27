@@ -195,7 +195,9 @@ mixin PlayerMixin {
       }
     }
     // media_kit 仓库更新导致的问题，临时解决办法
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid ||
+        (Platform.isWindows &&
+            AppSettingsController.instance.lookbackLimitMinutes.value > 0)) {
       await nativePlayer.setProperty('force-seekable', 'yes');
     }
   }
@@ -2820,6 +2822,22 @@ class PlayerController extends BaseController
     _stallLastProgressAt = null;
     _playbackStallStableTimer?.cancel();
     _playbackStallStableTimer = null;
+  }
+
+  /// Seek only the picture. Danmaku keeps its own clock.
+  Future<void> seekBackward(Duration by) async {
+    _resetPlaybackStallSample();
+    final current = player.state.position;
+    var target = current - by;
+    if (target.isNegative) {
+      target = Duration.zero;
+    }
+    try {
+      await player.seek(target);
+    } catch (e, stackTrace) {
+      Log.e("回看失败: $e", stackTrace);
+    }
+    _resetPlaybackStallSample();
   }
 
   void mediaEnd() {

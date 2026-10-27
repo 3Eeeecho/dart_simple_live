@@ -9,11 +9,45 @@ import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/log.dart';
 
 class MpvOptionsService {
+  static const int maxLookbackMinutes = 15;
+  static const int lookbackMebibytesPerMinute = 80;
+
   static const Map<String, String> profileLabels = {
     "performance": "流畅",
     "balanced": "均衡",
     "quality": "画质",
   };
+
+  static int clampLookbackMinutes(int minutes) {
+    if (minutes < 0) {
+      return 0;
+    }
+    if (minutes > maxLookbackMinutes) {
+      return maxLookbackMinutes;
+    }
+    return minutes;
+  }
+
+  /// Byte cap for already-played data. Zero minutes keeps the old 8MiB back buffer.
+  static String lookbackBackBytesLabel(int minutes) {
+    final clamped = clampLookbackMinutes(minutes);
+    if (clamped == 0) {
+      return "8MiB";
+    }
+    return "${clamped * lookbackMebibytesPerMinute}MiB";
+  }
+
+  static String lookbackMaxBytesLabel(int minutes) {
+    final clamped = clampLookbackMinutes(minutes);
+    if (clamped == 0) {
+      return "16MiB";
+    }
+    return "${clamped * lookbackMebibytesPerMinute + 32}MiB";
+  }
+
+  static String windowsHwdec({required bool nvidiaSuperResolution}) {
+    return nvidiaSuperResolution ? "d3d11va" : "d3d11va-copy";
+  }
 
   static const Map<String, Map<String, String>> desktopProfiles = {
     "performance": {
@@ -90,6 +124,19 @@ class MpvOptionsService {
         options["ao"] = ao;
         source["ao"] = "custom";
       }
+    }
+    if (Platform.isWindows && settings.lookbackLimitMinutes.value > 0) {
+      final minutes = settings.lookbackLimitMinutes.value;
+      options["demuxer-max-back-bytes"] = lookbackBackBytesLabel(minutes);
+      options["demuxer-max-bytes"] = lookbackMaxBytesLabel(minutes);
+      source["demuxer-max-back-bytes"] = "lookback";
+      source["demuxer-max-bytes"] = "lookback";
+    }
+    if (Platform.isWindows && settings.nvidiaSuperResolution.value) {
+      options["vf"] = "d3d11vpp=scale=2:scaling-mode=nvidia";
+      options["gpu-api"] = "d3d11";
+      source["vf"] = "nvidia-vsr";
+      source["gpu-api"] = "nvidia-vsr";
     }
     final advancedOptions = parseOptions(settings.mpvAdvancedOptions.value);
     options.addAll(advancedOptions);
@@ -196,7 +243,13 @@ class MpvOptionsService {
     }
     // Windows: d3d11va-copy avoids #115 zero-copy black screen on slim mpv.
     if (Platform.isWindows) {
-      base = {...base, "hwdec": "d3d11va-copy"};
+      base = {
+        ...base,
+        "hwdec": windowsHwdec(
+          nvidiaSuperResolution:
+              AppSettingsController.instance.nvidiaSuperResolution.value,
+        ),
+      };
     }
     return base;
   }

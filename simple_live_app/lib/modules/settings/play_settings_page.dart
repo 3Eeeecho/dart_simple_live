@@ -50,6 +50,31 @@ class PlaySettingsPage extends GetView<AppSettingsController> {
                   ),
                 ),
                 AppStyle.divider,
+                if (Platform.isWindows)
+                  Obx(
+                    () => SettingsSwitch(
+                      title: "NVIDIA 超分",
+                      subtitle:
+                          "使用 RTX Video Super Resolution。需在 NVIDIA 控制面板打开该功能，并重新进入直播间。窗口需大于源画面。若黑屏，关闭此项。",
+                      value: controller.nvidiaSuperResolution.value,
+                      onChanged: controller.setNvidiaSuperResolution,
+                    ),
+                  ),
+                if (Platform.isWindows) AppStyle.divider,
+                if (Platform.isWindows)
+                  Obx(
+                    () => SettingsNumber(
+                      title: "回看上限",
+                      subtitle:
+                          "0 为关闭。只回退画面，弹幕仍是实时的。每分钟约 80MB 内存上限，最高 15 分钟。重新进入直播间后生效。",
+                      value: controller.lookbackLimitMinutes.value,
+                      min: 0,
+                      max: 15,
+                      unit: "分钟",
+                      onChanged: controller.setLookbackLimitMinutes,
+                    ),
+                  ),
+                if (Platform.isWindows) AppStyle.divider,
                 Obx(
                   () => SettingsSwitch(
                     title: Platform.isIOS ? "硬件加速" : "硬件解码",

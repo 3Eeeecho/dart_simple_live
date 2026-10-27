@@ -301,6 +301,12 @@ class AppSettingsController extends GetxController {
         .getValue(LocalStorageService.kCustomPlayerOutput, false);
     mpvProfile.value = LocalStorageService.instance
         .getValue(LocalStorageService.kMpvProfile, "balanced");
+    nvidiaSuperResolution.value = LocalStorageService.instance
+        .getValue(LocalStorageService.kNvidiaSuperResolution, false);
+    lookbackLimitMinutes.value = _clampLookbackMinutes(
+      LocalStorageService.instance
+          .getValue(LocalStorageService.kLookbackLimitMinutes, 0),
+    );
     mpvAdvancedOptions.value = LocalStorageService.instance
         .getValue(LocalStorageService.kMpvAdvancedOptions, "");
     importedMpvConfPath.value = LocalStorageService.instance
@@ -2724,6 +2730,36 @@ class AppSettingsController extends GetxController {
   void setMpvProfile(String e) {
     mpvProfile.value = e;
     LocalStorageService.instance.setValue(LocalStorageService.kMpvProfile, e);
+  }
+
+  var nvidiaSuperResolution = false.obs;
+  void setNvidiaSuperResolution(bool e) {
+    nvidiaSuperResolution.value = e;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kNvidiaSuperResolution,
+      e,
+    );
+  }
+
+  var lookbackLimitMinutes = 0.obs;
+  int _clampLookbackMinutes(dynamic value) {
+    final parsed = value is int ? value : int.tryParse('$value') ?? 0;
+    if (parsed < 0) {
+      return 0;
+    }
+    if (parsed > 15) {
+      return 15;
+    }
+    return parsed;
+  }
+
+  void setLookbackLimitMinutes(int e) {
+    final clamped = _clampLookbackMinutes(e);
+    lookbackLimitMinutes.value = clamped;
+    LocalStorageService.instance.setValue(
+      LocalStorageService.kLookbackLimitMinutes,
+      clamped,
+    );
   }
 
   var mpvAdvancedOptions = "".obs;
