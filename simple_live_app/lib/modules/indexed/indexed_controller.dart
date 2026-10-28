@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 
 import 'package:get/get.dart';
@@ -28,8 +30,10 @@ class IndexedController extends GetxController {
   ]);
 
   void setIndex(int i) {
-    if (pages[i] is SizedBox) {
-      switch (items[i].index) {
+    final pageKey = items[i].index;
+    final firstOpen = pages[i] is SizedBox;
+    if (firstOpen) {
+      switch (pageKey) {
         case 0:
           Get.put(HomeController());
           pages[i] = const HomePage();
@@ -47,14 +51,21 @@ class IndexedController extends GetxController {
           break;
         default:
       }
-    } else {
-      if (index.value == i) {
-        EventBus.instance
-            .emit<int>(EventBus.kBottomNavigationBarClicked, items[i].index);
-      }
+    } else if (index.value == i) {
+      EventBus.instance
+          .emit<int>(EventBus.kBottomNavigationBarClicked, pageKey);
+    } else if (pageKey == 1) {
+      _refreshFollowStatusOnEnter();
     }
 
     index.value = i;
+  }
+
+  void _refreshFollowStatusOnEnter() {
+    if (!Get.isRegistered<FollowUserController>()) {
+      return;
+    }
+    unawaited(Get.find<FollowUserController>().refreshStatusOnEnter());
   }
 
   @override

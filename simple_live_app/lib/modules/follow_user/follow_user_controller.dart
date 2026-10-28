@@ -91,14 +91,17 @@ class FollowUserController extends BasePageController<FollowUser> {
 
   Future<void> _loadInitialData() async {
     await refreshData(forceStatus: false);
-    if (AppSettingsController.instance.followRefreshOnEnter.value &&
-        FollowService.instance.followList.isNotEmpty) {
-      unawaited(
-        FollowService.instance.startUpdateStatus(force: false).then((_) {
-          filterData();
-        }),
-      );
+    unawaited(refreshStatusOnEnter());
+  }
+
+  /// Refresh live status when the follow page is opened.
+  /// Uses the non-forced path so a 30s cooldown and the Douyin limiter still apply.
+  Future<void> refreshStatusOnEnter() async {
+    if (FollowService.instance.followList.isEmpty) {
+      return;
     }
+    await FollowService.instance.startUpdateStatus(force: false);
+    filterData();
   }
 
   void _restoreGroupSelection() {
@@ -452,10 +455,6 @@ class FollowUserController extends BasePageController<FollowUser> {
     AppSettingsController.instance.setFollowOnlyLive(value);
     currentDisplayPage.value = 1;
     filterData();
-  }
-
-  void setRefreshOnEnter(bool value) {
-    AppSettingsController.instance.setFollowRefreshOnEnter(value);
   }
 
   void setShowLiveCover(bool value) {

@@ -18,6 +18,18 @@ import 'package:simple_live_app/widgets/follow_user_item.dart';
 import 'package:simple_live_app/widgets/live_room_grid_layout.dart';
 import 'package:simple_live_app/widgets/page_grid_view.dart';
 
+const _followAppBarIconStyle = ButtonStyle(
+  tapTargetSize: MaterialTapTargetSize.padded,
+  padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 12)),
+  minimumSize: WidgetStatePropertyAll(Size(48, 48)),
+);
+
+const _followToolbarButtonStyle = ButtonStyle(
+  tapTargetSize: MaterialTapTargetSize.padded,
+  padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 16)),
+  minimumSize: WidgetStatePropertyAll(Size(48, 44)),
+);
+
 class FollowUserPage extends GetView<FollowUserController> {
   const FollowUserPage({Key? key}) : super(key: key);
 
@@ -25,10 +37,12 @@ class FollowUserPage extends GetView<FollowUserController> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         title: const Text("关注用户"),
         actions: [
           IconButton(
             tooltip: "搜索主播",
+            style: _followAppBarIconStyle,
             onPressed: () => _showSearchDialog(context),
             icon: Obx(
               () => Icon(
@@ -38,81 +52,14 @@ class FollowUserPage extends GetView<FollowUserController> {
               ),
             ),
           ),
+          const SizedBox(width: 12),
           IconButton(
             tooltip: "显示与筛选",
+            style: _followAppBarIconStyle,
             onPressed: () => _showDisplaySheet(context),
             icon: const Icon(Icons.tune),
           ),
-          Obx(
-            () => Visibility(
-              visible: controller.paginationEnabled.value,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton(
-                    tooltip: "上一页",
-                    onPressed: controller.currentDisplayPage.value > 1
-                        ? controller.goToPreviousPage
-                        : null,
-                    icon: const Icon(Icons.chevron_left),
-                  ),
-                  Text(
-                    "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
-                  ),
-                  IconButton(
-                    tooltip: "下一页",
-                    onPressed: controller.currentDisplayPage.value <
-                            controller.totalDisplayPages.value
-                        ? controller.goToNextPage
-                        : null,
-                    icon: const Icon(Icons.chevron_right),
-                  ),
-                  IconButton(
-                    tooltip: "刷新当前页",
-                    onPressed: controller.refreshCurrentPageStatus,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                  IconButton(
-                    tooltip: controller.selectedTagId.value ==
-                            FollowUserController.allTagId
-                        ? "刷新全部关注"
-                        : "刷新标签：${controller.selectedTagName}",
-                    onPressed: controller.refreshAllStatus,
-                    icon: const Icon(Icons.sync),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (PlatformUtils.supportsInlineMultiRoom) ...[
-            Obx(
-              () => TextButton.icon(
-                onPressed: controller.multiSelectMode.value
-                    ? controller.openSelectedMultiRooms
-                    : controller.toggleMultiSelectMode,
-                icon: Icon(
-                  controller.multiSelectMode.value
-                      ? Icons.grid_view
-                      : Icons.grid_view_outlined,
-                ),
-                label: Text(
-                  controller.multiSelectMode.value
-                      ? "开始同屏(${controller.selectedMultiRoomKeys.length})"
-                      : "多开同屏",
-                ),
-              ),
-            ),
-            Obx(
-              () => Visibility(
-                visible: controller.multiSelectMode.value,
-                child: IconButton(
-                  tooltip: "取消多选",
-                  onPressed: controller.toggleMultiSelectMode,
-                  icon: const Icon(Icons.close),
-                ),
-              ),
-            ),
-          ],
+          const SizedBox(width: 12),
           PopupMenuButton(
             itemBuilder: (context) {
               return const [
@@ -187,25 +134,11 @@ class FollowUserPage extends GetView<FollowUserController> {
               }
             },
           ),
+          const SizedBox(width: 8),
         ],
-        leading: Obx(
-          () => FollowService.instance.updating.value
-              ? const IconButton(
-                  onPressed: null,
-                  icon: SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              : IconButton(
-                  tooltip: controller.selectedTagId.value ==
-                          FollowUserController.allTagId
-                      ? "刷新全部关注"
-                      : "刷新标签：${controller.selectedTagName}",
-                  onPressed: controller.refreshAllStatus,
-                  icon: const Icon(Icons.refresh),
-                ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(56),
+          child: _buildFollowToolbar(context),
         ),
       ),
       body: Stack(
@@ -244,7 +177,8 @@ class FollowUserPage extends GetView<FollowUserController> {
                   () => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Wrap(
-                      spacing: 12,
+                      spacing: 16,
+                      runSpacing: 12,
                       children: controller.filterTagOptions.map((tag) {
                         return FilterButton(
                           text: tag.tag,
@@ -269,7 +203,7 @@ class FollowUserPage extends GetView<FollowUserController> {
                           controller.setGroupMode(FollowGroupMode.liveStatus);
                         },
                       ),
-                      AppStyle.hGap8,
+                      AppStyle.hGap16,
                       ChoiceChip(
                         label: const Text("按平台"),
                         selected: controller.groupMode.value ==
@@ -288,7 +222,8 @@ class FollowUserPage extends GetView<FollowUserController> {
                   () => SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Wrap(
-                      spacing: 12,
+                      spacing: 16,
+                      runSpacing: 12,
                       children: controller.groupOptions.map((option) {
                         return FilterButton(
                           text: option.title,
@@ -387,6 +322,100 @@ class FollowUserPage extends GetView<FollowUserController> {
     );
   }
 
+  Widget _buildFollowToolbar(BuildContext context) {
+    return SizedBox(
+      height: 56,
+      child: Obx(() {
+        final updating = FollowService.instance.updating.value;
+        final pagination = controller.paginationEnabled.value;
+        final refreshLabel = controller.selectedTagId.value ==
+                FollowUserController.allTagId
+            ? "刷新全部"
+            : "刷新${controller.selectedTagName}";
+        final buttons = <Widget>[
+          updating
+              ? const SizedBox(
+                  width: 48,
+                  height: 44,
+                  child: Center(
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                )
+              : TextButton.icon(
+                  style: _followToolbarButtonStyle,
+                  onPressed: controller.refreshAllStatus,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(refreshLabel),
+                ),
+          if (pagination) ...[
+            TextButton.icon(
+              style: _followToolbarButtonStyle,
+              onPressed: controller.refreshCurrentPageStatus,
+              icon: const Icon(Icons.sync),
+              label: const Text("当前页"),
+            ),
+            IconButton(
+              tooltip: "上一页",
+              style: _followAppBarIconStyle,
+              onPressed: controller.currentDisplayPage.value > 1
+                  ? controller.goToPreviousPage
+                  : null,
+              icon: const Icon(Icons.chevron_left),
+            ),
+            Text(
+              "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
+            ),
+            IconButton(
+              tooltip: "下一页",
+              style: _followAppBarIconStyle,
+              onPressed: controller.currentDisplayPage.value <
+                      controller.totalDisplayPages.value
+                  ? controller.goToNextPage
+                  : null,
+              icon: const Icon(Icons.chevron_right),
+            ),
+          ],
+          if (PlatformUtils.supportsInlineMultiRoom) ...[
+            TextButton.icon(
+              style: _followToolbarButtonStyle,
+              onPressed: controller.multiSelectMode.value
+                  ? controller.openSelectedMultiRooms
+                  : controller.toggleMultiSelectMode,
+              icon: Icon(
+                controller.multiSelectMode.value
+                    ? Icons.grid_view
+                    : Icons.grid_view_outlined,
+              ),
+              label: Text(
+                controller.multiSelectMode.value
+                    ? "开始同屏(${controller.selectedMultiRoomKeys.length})"
+                    : "多开同屏",
+              ),
+            ),
+            if (controller.multiSelectMode.value)
+              IconButton(
+                tooltip: "取消多选",
+                style: _followAppBarIconStyle,
+                onPressed: controller.toggleMultiSelectMode,
+                icon: const Icon(Icons.close),
+              ),
+          ],
+        ];
+        return ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          itemCount: buttons.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 16),
+          itemBuilder: (_, index) => Center(child: buttons[index]),
+        );
+      }),
+    );
+  }
+
   _FollowLayoutSpec _resolveLayoutSpec(double width) {
     final style = AppSettingsController.instance.followDisplayStyle.value;
     final showLiveCover =
@@ -459,14 +488,6 @@ class FollowUserPage extends GetView<FollowUserController> {
         InputChip(
           label: const Text("仅显示开播"),
           onDeleted: () => controller.setOnlyLive(false),
-        ),
-      );
-    }
-    if (settings.followRefreshOnEnter.value) {
-      chips.add(
-        InputChip(
-          label: const Text("进页自动刷新"),
-          onDeleted: () => controller.setRefreshOnEnter(false),
         ),
       );
     }
@@ -579,25 +600,6 @@ class FollowUserPage extends GetView<FollowUserController> {
                     subtitle: const Text("在当前平台/状态分组结果上再只保留已开播主播"),
                     value: settings.followOnlyLive.value,
                     onChanged: controller.setOnlyLive,
-                  ),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text("进入关注页后自动刷新"),
-                    subtitle: const Text("先显示本地列表，再异步全量刷新；关注过多时极易触发抖音限制"),
-                    value: settings.followRefreshOnEnter.value,
-                    onChanged: (value) async {
-                      if (value) {
-                        final confirmed = await Utils.showAlertDialog(
-                          "开启后，每次进入关注页都会先显示本地列表，再异步发起一次全量刷新。关注过多时，极其容易触发抖音限制，尤其是抖音关注较多时更明显。",
-                          title: "风险提示",
-                          confirm: "继续开启",
-                        );
-                        if (!confirmed) {
-                          return;
-                        }
-                      }
-                      controller.setRefreshOnEnter(value);
-                    },
                   ),
                 ],
               ),
