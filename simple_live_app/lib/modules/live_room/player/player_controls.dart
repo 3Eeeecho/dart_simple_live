@@ -553,7 +553,7 @@ Widget _buildFullBottomBar(
                   children: [
                     _androidSrChip(controller),
                     _lookbackSlider(controller),
-                    Row(
+                    _fitPlayerControls(
                       children: [
                         IconButton(
                           onPressed: controller.refreshRoom,
@@ -697,55 +697,30 @@ double _lookbackAndSrExtraHeight() {
   return extra;
 }
 
-bool _hidePortraitLookbackDuration(bool isPortrait) {
-  return isPortrait &&
-      Platform.isAndroid &&
-      AppSettingsController.instance.lookbackLimitMinutes.value > 0;
+/// Wide windows keep the controls spread out. Narrow phones scroll the same buttons.
+Widget _fitPlayerControls({required List<Widget> children}) {
+  return LayoutBuilder(
+    builder: (context, constraints) {
+      if (constraints.maxWidth >= 720) {
+        return Row(children: children);
+      }
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final child in children)
+              if (child is! Expanded) child,
+          ],
+        ),
+      );
+    },
+  );
 }
 
 List<Widget> _lookbackButtons(LiveRoomController controller) {
   if ((!Platform.isWindows && !Platform.isAndroid) ||
       AppSettingsController.instance.lookbackLimitMinutes.value <= 0) {
     return const [];
-  }
-  if (Platform.isAndroid) {
-    return [
-      PopupMenuButton<int>(
-        tooltip: "回看",
-        padding: EdgeInsets.zero,
-        color: Colors.black87,
-        onSelected: (value) {
-          if (value == 0) {
-            controller.refreshRoom();
-            return;
-          }
-          controller.seekBackward(Duration(seconds: value));
-        },
-        itemBuilder: (context) => const [
-          PopupMenuItem(
-            value: 10,
-            child: Text("后退 10 秒", style: TextStyle(color: Colors.white)),
-          ),
-          PopupMenuItem(
-            value: 30,
-            child: Text("后退 30 秒", style: TextStyle(color: Colors.white)),
-          ),
-          PopupMenuItem(
-            value: 60,
-            child: Text("后退 60 秒", style: TextStyle(color: Colors.white)),
-          ),
-          PopupMenuItem(
-            value: 0,
-            child: Text("回到直播", style: TextStyle(color: Colors.white)),
-          ),
-        ],
-        child: const SizedBox(
-          width: 40,
-          height: 40,
-          child: Icon(Icons.fast_rewind, color: Colors.white, size: 22),
-        ),
-      ),
-    ];
   }
   Widget button(String label, Duration by) {
     return TextButton(
@@ -866,7 +841,7 @@ Widget _buildNormalBottomBar(
             children: [
               _androidSrChip(controller),
               _lookbackSlider(controller),
-              Row(
+              _fitPlayerControls(
                 children: [
                   IconButton(
                     onPressed: controller.refreshRoom,
@@ -909,15 +884,14 @@ Widget _buildNormalBottomBar(
                       color: Colors.white,
                     ),
                   ),
-                  if (!_hidePortraitLookbackDuration(isPortrait))
-                    Padding(
-                      padding: const EdgeInsets.only(left: 8),
-                      child: Text(
-                        controller.liveDuration.value,
-                        style:
-                            const TextStyle(fontSize: 14, color: Colors.white),
-                      ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 8),
+                    child: Text(
+                      controller.liveDuration.value,
+                      style:
+                          const TextStyle(fontSize: 14, color: Colors.white),
                     ),
+                  ),
                   const Expanded(child: SizedBox()),
                   if (!Platform.isAndroid && !Platform.isIOS)
                     IconButton(

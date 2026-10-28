@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
@@ -24,10 +22,18 @@ const _followAppBarIconStyle = ButtonStyle(
   minimumSize: WidgetStatePropertyAll(Size(48, 48)),
 );
 
+const _statusFilters = <FollowGroupOption>[
+  FollowGroupOption(id: "all", title: "全部"),
+  FollowGroupOption(id: "live", title: "直播中", liveStatus: 2),
+  FollowGroupOption(id: "not_live", title: "未开播", liveStatus: 1),
+];
+
 const _followToolbarButtonStyle = ButtonStyle(
   tapTargetSize: MaterialTapTargetSize.padded,
-  padding: WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 16)),
-  minimumSize: WidgetStatePropertyAll(Size(48, 44)),
+  padding: WidgetStatePropertyAll(
+    EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+  ),
+  minimumSize: WidgetStatePropertyAll(Size(48, 40)),
 );
 
 class FollowUserPage extends GetView<FollowUserController> {
@@ -137,7 +143,7 @@ class FollowUserPage extends GetView<FollowUserController> {
           const SizedBox(width: 8),
         ],
         bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(56),
+          preferredSize: const Size.fromHeight(64),
           child: _buildFollowToolbar(context),
         ),
       ),
@@ -165,76 +171,23 @@ class FollowUserPage extends GetView<FollowUserController> {
                 () => _buildActiveFilterBar(context),
               ),
               Padding(
-                padding: AppStyle.edgeInsetsH8.copyWith(top: 4),
-                child: Text(
-                  "标签",
-                  style: Theme.of(context).textTheme.labelLarge,
-                ),
-              ),
-              Padding(
-                padding: AppStyle.edgeInsetsA8.copyWith(top: 4),
-                child: Obx(
-                  () => SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 12,
-                      children: controller.filterTagOptions.map((tag) {
-                        return FilterButton(
-                          text: tag.tag,
-                          selected: controller.selectedTagId.value == tag.id,
-                          onTap: () => controller.setSelectedTag(tag),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: AppStyle.edgeInsetsH8,
+                padding: const EdgeInsets.fromLTRB(24, 4, 24, 12),
                 child: Obx(
                   () => Row(
                     children: [
-                      ChoiceChip(
-                        label: const Text("按状态"),
-                        selected: controller.groupMode.value ==
-                            FollowGroupMode.liveStatus,
-                        onSelected: (_) {
-                          controller.setGroupMode(FollowGroupMode.liveStatus);
-                        },
-                      ),
-                      AppStyle.hGap16,
-                      ChoiceChip(
-                        label: const Text("按平台"),
-                        selected: controller.groupMode.value ==
-                            FollowGroupMode.platform,
-                        onSelected: (_) {
-                          controller.setGroupMode(FollowGroupMode.platform);
-                        },
-                      ),
+                      for (var i = 0;
+                          i < _statusFilters.length;
+                          i++) ...[
+                        if (i > 0) const SizedBox(width: 20),
+                        FilterButton(
+                          text: _statusFilters[i].title,
+                          selected: controller.selectedGroupId.value ==
+                              _statusFilters[i].id,
+                          onTap: () => controller
+                              .selectStatusFilter(_statusFilters[i].id),
+                        ),
+                      ],
                     ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: AppStyle.edgeInsetsA8.copyWith(top: 4),
-                child: Obx(
-                  () => SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Wrap(
-                      spacing: 16,
-                      runSpacing: 12,
-                      children: controller.groupOptions.map((option) {
-                        return FilterButton(
-                          text: option.title,
-                          selected:
-                              controller.selectedGroupId.value == option.id,
-                          onTap: () {
-                            controller.setGroupOption(option);
-                          },
-                        );
-                      }).toList(),
-                    ),
                   ),
                 ),
               ),
@@ -312,7 +265,7 @@ class FollowUserPage extends GetView<FollowUserController> {
                 ? Positioned(
                     left: 16,
                     right: 16,
-                    bottom: Platform.isAndroid || Platform.isIOS ? 12 : 18,
+                    bottom: 16,
                     child: _buildFloatingPaginationBar(context),
                   )
                 : const SizedBox.shrink(),
@@ -324,7 +277,7 @@ class FollowUserPage extends GetView<FollowUserController> {
 
   Widget _buildFollowToolbar(BuildContext context) {
     return SizedBox(
-      height: 56,
+      height: 64,
       child: Obx(() {
         final updating = FollowService.instance.updating.value;
         final pagination = controller.paginationEnabled.value;
@@ -332,11 +285,11 @@ class FollowUserPage extends GetView<FollowUserController> {
                 FollowUserController.allTagId
             ? "刷新全部"
             : "刷新${controller.selectedTagName}";
-        final buttons = <Widget>[
+        final groups = <Widget>[
           updating
               ? const SizedBox(
                   width: 48,
-                  height: 44,
+                  height: 40,
                   child: Center(
                     child: SizedBox(
                       width: 16,
@@ -351,66 +304,82 @@ class FollowUserPage extends GetView<FollowUserController> {
                   icon: const Icon(Icons.refresh),
                   label: Text(refreshLabel),
                 ),
-          if (pagination) ...[
-            TextButton.icon(
-              style: _followToolbarButtonStyle,
-              onPressed: controller.refreshCurrentPageStatus,
-              icon: const Icon(Icons.sync),
-              label: const Text("当前页"),
+          if (pagination)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  style: _followToolbarButtonStyle,
+                  onPressed: controller.refreshCurrentPageStatus,
+                  icon: const Icon(Icons.sync),
+                  label: const Text("当前页"),
+                ),
+                const SizedBox(width: 20),
+                IconButton(
+                  tooltip: "上一页",
+                  style: _followAppBarIconStyle,
+                  onPressed: controller.currentDisplayPage.value > 1
+                      ? controller.goToPreviousPage
+                      : null,
+                  icon: const Icon(Icons.chevron_left),
+                ),
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton(
+                  tooltip: "下一页",
+                  style: _followAppBarIconStyle,
+                  onPressed: controller.currentDisplayPage.value <
+                          controller.totalDisplayPages.value
+                      ? controller.goToNextPage
+                      : null,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
             ),
-            IconButton(
-              tooltip: "上一页",
-              style: _followAppBarIconStyle,
-              onPressed: controller.currentDisplayPage.value > 1
-                  ? controller.goToPreviousPage
-                  : null,
-              icon: const Icon(Icons.chevron_left),
+          if (PlatformUtils.supportsInlineMultiRoom)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextButton.icon(
+                  style: _followToolbarButtonStyle,
+                  onPressed: controller.multiSelectMode.value
+                      ? controller.openSelectedMultiRooms
+                      : controller.toggleMultiSelectMode,
+                  icon: Icon(
+                    controller.multiSelectMode.value
+                        ? Icons.grid_view
+                        : Icons.grid_view_outlined,
+                  ),
+                  label: Text(
+                    controller.multiSelectMode.value
+                        ? "开始同屏(${controller.selectedMultiRoomKeys.length})"
+                        : "多开同屏",
+                  ),
+                ),
+                if (controller.multiSelectMode.value) ...[
+                  const SizedBox(width: 12),
+                  IconButton(
+                    tooltip: "取消多选",
+                    style: _followAppBarIconStyle,
+                    onPressed: controller.toggleMultiSelectMode,
+                    icon: const Icon(Icons.close),
+                  ),
+                ],
+              ],
             ),
-            Text(
-              "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
-            ),
-            IconButton(
-              tooltip: "下一页",
-              style: _followAppBarIconStyle,
-              onPressed: controller.currentDisplayPage.value <
-                      controller.totalDisplayPages.value
-                  ? controller.goToNextPage
-                  : null,
-              icon: const Icon(Icons.chevron_right),
-            ),
-          ],
-          if (PlatformUtils.supportsInlineMultiRoom) ...[
-            TextButton.icon(
-              style: _followToolbarButtonStyle,
-              onPressed: controller.multiSelectMode.value
-                  ? controller.openSelectedMultiRooms
-                  : controller.toggleMultiSelectMode,
-              icon: Icon(
-                controller.multiSelectMode.value
-                    ? Icons.grid_view
-                    : Icons.grid_view_outlined,
-              ),
-              label: Text(
-                controller.multiSelectMode.value
-                    ? "开始同屏(${controller.selectedMultiRoomKeys.length})"
-                    : "多开同屏",
-              ),
-            ),
-            if (controller.multiSelectMode.value)
-              IconButton(
-                tooltip: "取消多选",
-                style: _followAppBarIconStyle,
-                onPressed: controller.toggleMultiSelectMode,
-                icon: const Icon(Icons.close),
-              ),
-          ],
         ];
         return ListView.separated(
           scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: buttons.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 16),
-          itemBuilder: (_, index) => Center(child: buttons[index]),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          itemCount: groups.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 24),
+          itemBuilder: (_, index) => Center(child: groups[index]),
         );
       }),
     );
@@ -420,13 +389,11 @@ class FollowUserPage extends GetView<FollowUserController> {
     final style = AppSettingsController.instance.followDisplayStyle.value;
     final showLiveCover =
         AppSettingsController.instance.followShowLiveCover.value;
-    final mobile = PlatformUtils.isMobileApp;
     if (style == "compact") {
       return _FollowLayoutSpec(
         itemStyle: FollowUserItemStyle.compactList,
-        crossAxisCount: mobile ? 1 : (width >= 1440 ? 2 : 1),
-        mainAxisExtent:
-            showLiveCover ? (mobile ? 112 : 118) : (mobile ? 70 : 78),
+        crossAxisCount: width >= 1440 ? 2 : 1,
+        mainAxisExtent: showLiveCover ? 118 : 78,
         childAspectRatio: 3.8,
         crossAxisSpacing: 12,
         mainAxisSpacing: showLiveCover ? 10 : 8,
@@ -441,8 +408,7 @@ class FollowUserPage extends GetView<FollowUserController> {
       );
       // 无封面时卡片内容（头像/名称/徽标/操作行）高度随系统字体缩放和徽标数量
       // 变化，固定高度会截断底部按钮，改为自适应高度的瀑布流网格。
-      final cardExtent =
-          showLiveCover ? grid.mainAxisExtent : (mobile ? 210.0 : 222.0);
+      final cardExtent = showLiveCover ? grid.mainAxisExtent : 222.0;
       return _FollowLayoutSpec(
         itemStyle: FollowUserItemStyle.card,
         useFixedGrid: showLiveCover,
@@ -455,8 +421,8 @@ class FollowUserPage extends GetView<FollowUserController> {
     }
     return _FollowLayoutSpec(
       itemStyle: FollowUserItemStyle.defaultList,
-      crossAxisCount: mobile ? 1 : (width >= 1520 ? 2 : 1),
-      mainAxisExtent: showLiveCover ? (mobile ? 132 : 138) : (mobile ? 82 : 92),
+      crossAxisCount: width >= 1520 ? 2 : 1,
+      mainAxisExtent: showLiveCover ? 138 : 92,
       childAspectRatio: 3.2,
       crossAxisSpacing: 12,
       mainAxisSpacing: showLiveCover ? 10 : 8,
@@ -466,15 +432,6 @@ class FollowUserPage extends GetView<FollowUserController> {
   Widget _buildActiveFilterBar(BuildContext context) {
     final settings = AppSettingsController.instance;
     final chips = <Widget>[];
-    if (controller.selectedTagId.value != FollowUserController.allTagId) {
-      chips.add(
-        InputChip(
-          label: Text("标签：${controller.selectedTagName}"),
-          onDeleted: () =>
-              controller.setSelectedTag(controller.filterTagOptions.first),
-        ),
-      );
-    }
     if (controller.searchKeyword.value.isNotEmpty) {
       chips.add(
         InputChip(
@@ -629,7 +586,7 @@ class FollowUserPage extends GetView<FollowUserController> {
           color: Theme.of(context).colorScheme.surface.withAlpha(242),
           borderRadius: AppStyle.radius8,
           child: Padding(
-            padding: AppStyle.edgeInsetsH12.add(AppStyle.edgeInsetsV4),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -640,9 +597,14 @@ class FollowUserPage extends GetView<FollowUserController> {
                       : null,
                   icon: const Icon(Icons.chevron_left),
                 ),
-                Text(
-                  "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
+                const SizedBox(width: 8),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                  child: Text(
+                    "${controller.currentDisplayPage.value}/${controller.totalDisplayPages.value}",
+                  ),
                 ),
+                const SizedBox(width: 8),
                 IconButton(
                   tooltip: "下一页",
                   onPressed: controller.currentDisplayPage.value <
@@ -651,14 +613,16 @@ class FollowUserPage extends GetView<FollowUserController> {
                       : null,
                   icon: const Icon(Icons.chevron_right),
                 ),
-                AppStyle.hGap8,
+                const SizedBox(width: 20),
                 TextButton.icon(
+                  style: _followToolbarButtonStyle,
                   onPressed: controller.refreshCurrentPageStatus,
                   icon: const Icon(Icons.refresh),
                   label: const Text("当前页"),
                 ),
-                AppStyle.hGap4,
+                const SizedBox(width: 16),
                 TextButton.icon(
+                  style: _followToolbarButtonStyle,
                   onPressed: controller.refreshAllStatus,
                   icon: const Icon(Icons.sync),
                   label: Text(controller.refreshTagLabel),

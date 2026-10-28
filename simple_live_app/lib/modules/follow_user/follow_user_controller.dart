@@ -9,7 +9,6 @@ import 'package:simple_live_app/app/controller/base_controller.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
 import 'package:simple_live_app/app/event_bus.dart';
 import 'package:simple_live_app/app/log.dart';
-import 'package:simple_live_app/app/platform_utils.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/db/follow_user.dart';
@@ -105,11 +104,10 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
 
   void _restoreGroupSelection() {
-    final settings = AppSettingsController.instance;
-    groupMode.value = settings.followGroupMode.value == "platform"
-        ? FollowGroupMode.platform
-        : FollowGroupMode.liveStatus;
-    selectedGroupId.value = settings.followSelectedGroupId.value;
+    const statusIds = {"all", "live", "not_live"};
+    final savedId = AppSettingsController.instance.followSelectedGroupId.value;
+    groupMode.value = FollowGroupMode.liveStatus;
+    selectedGroupId.value = statusIds.contains(savedId) ? savedId : "all";
   }
 
   @override
@@ -475,6 +473,15 @@ class FollowUserController extends BasePageController<FollowUser> {
     filterData();
   }
 
+  /// 关注页只保留按开播状态筛选：全部、直播中、未开播。
+  void selectStatusFilter(String groupId) {
+    groupMode.value = FollowGroupMode.liveStatus;
+    selectedGroupId.value = groupId;
+    currentDisplayPage.value = 1;
+    _saveGroupSelection();
+    filterData();
+  }
+
   void _saveGroupSelection() {
     AppSettingsController.instance.setFollowGroupSelection(
       mode: groupMode.value == FollowGroupMode.platform
@@ -509,9 +516,6 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
 
   void toggleMultiSelectMode() {
-    if (!PlatformUtils.supportsInlineMultiRoom) {
-      return;
-    }
     multiSelectMode.value = !multiSelectMode.value;
     if (!multiSelectMode.value) {
       selectedMultiRoomKeys.clear();
@@ -519,9 +523,6 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
 
   void toggleMultiRoomItem(FollowUser item) {
-    if (!PlatformUtils.supportsInlineMultiRoom) {
-      return;
-    }
     if (item.liveStatus.value != 2) {
       SmartDialog.showToast("只能选择直播中的关注");
       return;
@@ -534,10 +535,6 @@ class FollowUserController extends BasePageController<FollowUser> {
   }
 
   void openSelectedMultiRooms() async {
-    if (!PlatformUtils.supportsInlineMultiRoom) {
-      SmartDialog.showToast("当前移动端版本已关闭多开同屏");
-      return;
-    }
     final selected = list
         .where((item) =>
             selectedMultiRoomKeys.contains(item.id) &&

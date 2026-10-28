@@ -5,7 +5,6 @@ import 'package:flutter_smart_dialog/flutter_smart_dialog.dart';
 import 'package:get/get.dart';
 import 'package:simple_live_app/app/constant.dart';
 import 'package:simple_live_app/app/controller/app_settings_controller.dart';
-import 'package:simple_live_app/app/platform_utils.dart';
 import 'package:simple_live_app/app/sites.dart';
 import 'package:simple_live_app/app/utils.dart';
 import 'package:simple_live_app/models/sync_client_info_model.dart';
@@ -116,10 +115,6 @@ class AppNavigator {
   }
 
   static Future<dynamic> toMultiRoom(List<MultiRoomItem> rooms) {
-    if (!PlatformUtils.supportsInlineMultiRoom) {
-      SmartDialog.showToast("当前移动端版本已关闭多开同屏");
-      return Future.value();
-    }
     return Get.toNamed(
           RoutePath.kMultiRoom,
           arguments: rooms,

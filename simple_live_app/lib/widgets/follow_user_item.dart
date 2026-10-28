@@ -680,14 +680,21 @@ class FollowUserItem extends StatelessWidget {
     if (children.isEmpty) {
       return const SizedBox.shrink();
     }
+    final gap = vertical ? const SizedBox(height: 8) : const SizedBox(width: 8);
+    final spaced = <Widget>[
+      for (var i = 0; i < children.length; i++) ...[
+        if (i > 0) gap,
+        children[i],
+      ],
+    ];
     return vertical
         ? Column(
             mainAxisSize: MainAxisSize.min,
-            children: children,
+            children: spaced,
           )
         : Row(
             mainAxisSize: MainAxisSize.min,
-            children: children,
+            children: spaced,
           );
   }
 

@@ -68,7 +68,7 @@ class MultiRoomPage extends GetView<MultiRoomController> {
     if (width >= 1400 && length >= 3) {
       return 3;
     }
-    if (width >= 760) {
+    if (width >= 360 && length >= 2) {
       return 2;
     }
     return 1;

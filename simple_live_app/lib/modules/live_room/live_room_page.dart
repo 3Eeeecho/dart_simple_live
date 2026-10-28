@@ -394,14 +394,7 @@ class LiveRoomPage extends GetView<LiveRoomController> {
   Widget buildPageUI() {
     return OrientationBuilder(
       builder: (context, orientation) {
-        final shortestSide = MediaQuery.sizeOf(context).shortestSide;
-        final isCompactMobile = shortestSide < 600;
-        final usePortraitLayout = (Platform.isAndroid || Platform.isIOS) &&
-            isCompactMobile &&
-            !controller.fullScreenState.value &&
-            !controller.smallWindowState.value;
-        final effectiveOrientation =
-            usePortraitLayout ? Orientation.portrait : orientation;
+        final effectiveOrientation = orientation;
         final hasLandscapeActionPanel =
             effectiveOrientation == Orientation.landscape;
         if (_isDesktop) {
